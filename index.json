@@ -40,5 +40,12 @@
         "key": "rumanhua",
         "version": "1.2.6",
         "description": "不清楚会不会彻底失效，尽力而为"
+    },
+    {
+        "name": "zero搬运网",
+        "fileName": "zero.js",
+        "key": "zerobyw",
+        "version": "1.0.0",
+        "description": "不清楚会不会彻底失效，尽力而为"
     }
 ]
