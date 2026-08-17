@@ -16,7 +16,7 @@ class XiangJiaoManHua extends ComicSource {
     key = "banana"
     version = "1.0.3"
     minAppVersion = "1.0.0"
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/banana.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/banana.js"
 
     baseUrl = "https://www.manhuauo.com"
 
