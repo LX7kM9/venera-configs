@@ -20,7 +20,7 @@ class Gfmh extends ComicSource {
   key = "gfmh";
   version = "1.3.0";
   minAppVersion = "1.6.0";
-  url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/gfmh.js";
+  url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/gfmh.js";
 
   baseUrl = "https://gfmh.app";
   requestHeaders = {
