@@ -2,5 +2,5 @@
 
 ## 链接：
 ```
-https://raw.githubusercontent.com/XXXXXX/venera-configs/main/index.json
+https://raw.githubusercontent.com/LX7kM9/venera-configs/main/index.json
 ```
