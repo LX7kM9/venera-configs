@@ -3,7 +3,7 @@ class RuManHua extends ComicSource {
     key = "rumanhua"
     version = "1.2.6"
     minAppVersion = "1.0.0"
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/rumanhua.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
     settings = {
         image_quality: {
