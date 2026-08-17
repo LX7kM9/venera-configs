@@ -14,7 +14,7 @@ class DongManLa extends ComicSource {
     key = "dongman_la";
     version = "1.0.1";
     minAppVersion = "1.0.0";
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/dongman_la.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dongman_la.js";
 
     baseUrl = "https://www.dongman.la";
     imageBaseUrl = "https://img.dongman.la";
