@@ -54,5 +54,19 @@
         "key": "copy_manga",
         "version": "1.8.0",
         "description": "多账号登录（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能反馈"
-    }
+    },
+    {
+        "name": "漫蛙吧",
+        "fileName": "manwaba.js",
+        "key": "manwaba",
+        "version": "1.1.3",
+        "description":  "不清楚会不会彻底失效，尽力而为"
+    },
+    {
+        "name": "禁漫天堂",
+        "flieName": "recode-jm.js",
+        "key": "jm",
+        "version": "1.8.3",
+        "description":  "非个人自制"
+    },
 ]
