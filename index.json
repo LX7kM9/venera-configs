@@ -13,28 +13,28 @@
         "version": "1.0.3",
         "description": "不清楚会不会彻底失效，尽力而为"
     },
-        {
+    {
         "name": "动漫啦",
         "fileName": "dongman_la.js",
         "key": "dongman_la",
         "version": "1.0.1",
         "description": "不清楚会不会彻底失效，尽力而为"
     },
-        {
+    {
         "name": "古风漫画",
         "fileName": "gfmh.js",
         "key": "gfmh",
         "version": "1.3.0",
         "description": "不清楚会不会彻底失效，尽力而为"
     },
-        {
+    {
         "name": "腾讯动漫（正版）",
         "fileName": "qq_comic_official.js",
         "key": "qq_comic_official",
         "version": "1.0.3",
         "description": "不清楚会不会彻底失效，尽力而为"
     },
-        {
+    {
         "name": "如漫画",
         "fileName": "rumanhua.js",
         "key": "rumanhua",
