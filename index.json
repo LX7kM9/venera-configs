@@ -46,6 +46,13 @@
         "fileName": "zero.js",
         "key": "zerobyw",
         "version": "1.0.0",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "description":  "不清楚会不会彻底失效，尽力而为"
+    },
+    {
+        "name": "拷贝漫画",
+        "fileName": "copy_manga.js",
+        "key": "copy_manga",
+        "version": "1.8.0",
+        "description": "多账号登录（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能反馈"
     }
 ]
