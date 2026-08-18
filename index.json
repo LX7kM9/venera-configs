@@ -64,7 +64,7 @@
     },
     {
         "name": "禁漫天堂",
-        "flieName": "recode-jm.js",
+        "fileName": "recode-jm.js",
         "key": "jm",
         "version": "1.8.3",
         "description":  "非个人自制"
