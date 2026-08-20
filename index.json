@@ -68,5 +68,12 @@
         "key": "jm",
         "version": "1.8.3",
         "description":  "非个人自制"
+    },
+    {
+        "name": "MangaDex",
+        "fileName": "manga_dex.js",
+        "key": "manga_dex",
+        "version": "1.9.3",
+        "description":  "非个人自制，仅修复翻译问题"
     }
 ]
