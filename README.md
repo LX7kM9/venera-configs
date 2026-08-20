@@ -1,11 +1,11 @@
 # venera-configs
 
-## 链接：
+## Link：
 ```
 https://raw.githubusercontent.com/LX7kM9/venera-configs/main/index.json
 ```
 
-## 镜像链接
+## Mirror link
 ```
 https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/index.json
 ```
