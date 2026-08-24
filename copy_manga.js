@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "1.8.0"   // 版本号递增
+    version = "1.9.0"   // 版本号递增
 
     minAppVersion = "1.6.0"
 
@@ -793,6 +793,9 @@ class CopyManga extends ComicSource {
                 { value: 'www.copy2000.site', text: 'copy2000.site（网页）' },
                 { value: 'mapi.copy2000.site', text: 'copy2000.site（api）' },
                 { value: 'api.copy3000.com', text: 'copy3000.com（api）' },
+                { value: 'www.copy3000.com', text: 'copy3000.com（网页）' },
+                { value: 'www.copy4000.com', text: 'copy4000.com（网页）' },
+                { value: 'api.copy4000.com', text: 'copy4000.com（api）' },
                 { value: 'custom', text: '自定义（使用API地址）' }
             ],
             default: 'custom',
@@ -833,7 +836,10 @@ class CopyManga extends ComicSource {
                         'api.copy2000.online',
                         'www.copy2000.site',
                         'api.copy2000.site',
-                        'api.copy3000.com'
+                        'www.copy3000.com',
+                        'api.copy3000.com',
+                        'www.copy4000.com',
+                        'api.copy4000.com'
                     ];
                     // 使用并行请求，每个请求设置5秒超时
                     const timeoutPromise = (ms) => new Promise(resolve => setTimeout(resolve, ms));
