@@ -1,13 +1,14 @@
 class Komiic extends ComicSource {
     name = "Komiic"
-    key = "Komiic"
-    version = "1.7.6"   // 兼容 1.0.7 登录信息（显式迁移 account）
+    key = "Komiic"          // 与文件名一致，确保数据存储正确
+    version = "1.7.8"       // 修复 removeFavorite 选择集错误
     minAppVersion = "1.0.0"
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/komiic.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/Komiic.js"
 
     static API_BASE_DEFAULT = "https://komiic.cc"
     static REFERER = "https://komiic.cc/"
     static UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    static FAV_FOLDER_ID = "__komiic_favorites__"   // 虚拟“收藏”文件夹 ID
 
     /** API 基址：根据节点选择或自定义返回 */
     _apiBase() {
@@ -148,7 +149,7 @@ class Komiic extends ComicSource {
                 tags: tags,
                 description: getTimeDifference(updateTime),
                 updateTime: `${updateTime.getFullYear()}-${updateTime.getMonth() + 1}-${updateTime.getDate()}`,
-                isFavorite: false  // 不使用心形收藏
+                isFavorite: comic.isFavorite === true   // 保留 isFavorite，用于心形收藏状态
             }
         }
         return { comics: json.data[operationName].map(parseComic), maxPage: null }
@@ -304,13 +305,17 @@ class Komiic extends ComicSource {
     }
 
     // ============================================================
-    // 收藏：仅使用自定义文件夹（主账号），无任何心形收藏
+    // 收藏：支持心形收藏（虚拟“收藏”文件夹）和自定义文件夹
     // ============================================================
     favorites = {
         multiFolder: true,
 
         loadFolders: async (comicId) => {
             let folders = {}
+            // 添加虚拟“收藏”文件夹（心形收藏）
+            folders[Komiic.FAV_FOLDER_ID] = "收藏"
+
+            // 获取用户自定义文件夹
             let json = await this.queryJson({
                 "operationName": "myFolder",
                 "variables": {},
@@ -322,28 +327,60 @@ class Komiic extends ComicSource {
 
             let favorited = []
             if (comicId) {
+                // 检查是否在心形收藏中
+                let favJson = await this.queryJson({
+                    "operationName": "comicByIds",
+                    "variables": { "comicIds": [comicId] },
+                    "query": "query comicByIds($comicIds: [ID]!) {\n comicByIds(comicIds: $comicIds) {\n id\n isFavorite\n __typename\n }\n}"
+                })
+                let arr = favJson.data.comicByIds
+                if (arr && arr.length > 0 && arr[0].isFavorite === true) {
+                    favorited.push(Komiic.FAV_FOLDER_ID)
+                }
+                // 检查在哪些自定义文件夹中
                 let folderJson = await this.queryJson({
                     "operationName": "comicInAccountFolders",
                     "variables": { "comicId": comicId },
                     "query": "query comicInAccountFolders($comicId: ID!) {\n comicInAccountFolders(comicId: $comicId)\n}"
                 })
-                favorited = folderJson.data.comicInAccountFolders
+                favorited = favorited.concat(folderJson.data.comicInAccountFolders)
             }
             return { folders, favorited }
         },
 
         addOrDelFavorite: async (comicId, folderId, isAdding) => {
-            let query = isAdding
-                ? {
-                    "operationName": "addComicToFolder",
-                    "variables": { "comicId": comicId, "folderId": folderId },
-                    "query": "mutation addComicToFolder($comicId: ID!, $folderId: ID!) {\n  addComicToFolder(comicId: $comicId, folderId: $folderId)\n}"
-                  }
-                : {
-                    "operationName": "removeComicToFolder",
-                    "variables": { "comicId": comicId, "folderId": folderId },
-                    "query": "mutation removeComicToFolder($comicId: ID!, $folderId: ID!) {\n  removeComicToFolder(comicId: $comicId, folderId: $folderId)\n}"
-                  }
+            let query
+            if (folderId === Komiic.FAV_FOLDER_ID) {
+                // 心形收藏
+                if (isAdding) {
+                    // addFavorite 返回 FavoriteV2!，需要选择集
+                    query = {
+                        "operationName": "addFavorite",
+                        "variables": { "comicId": comicId },
+                        "query": "mutation addFavorite($comicId: ID!) {\n  addFavorite(comicId: $comicId) {\n    __typename\n  }\n}"
+                    }
+                } else {
+                    // removeFavorite 返回 Boolean!，不能有选择集
+                    query = {
+                        "operationName": "removeFavorite",
+                        "variables": { "comicId": comicId },
+                        "query": "mutation removeFavorite($comicId: ID!) {\n  removeFavorite(comicId: $comicId)\n}"
+                    }
+                }
+            } else {
+                // 自定义文件夹（返回 Boolean!，无选择集）
+                query = isAdding
+                    ? {
+                        "operationName": "addComicToFolder",
+                        "variables": { "comicId": comicId, "folderId": folderId },
+                        "query": "mutation addComicToFolder($comicId: ID!, $folderId: ID!) {\n  addComicToFolder(comicId: $comicId, folderId: $folderId)\n}"
+                      }
+                    : {
+                        "operationName": "removeComicToFolder",
+                        "variables": { "comicId": comicId, "folderId": folderId },
+                        "query": "mutation removeComicToFolder($comicId: ID!, $folderId: ID!) {\n  removeComicToFolder(comicId: $comicId, folderId: $folderId)\n}"
+                      }
+            }
             await this.queryJson(query)
             return "ok"
         },
@@ -358,6 +395,7 @@ class Komiic extends ComicSource {
         },
 
         deleteFolder: async (folderId) => {
+            if (folderId === Komiic.FAV_FOLDER_ID) return "ok"   // 不允许删除虚拟文件夹
             await this.queryJson({
                 "operationName": "removeFolder",
                 "variables": { "folderId": folderId },
@@ -367,25 +405,49 @@ class Komiic extends ComicSource {
         },
 
         loadComics: async (page, folder) => {
-            let json = await this.queryJson({
-                "operationName": "folderComicIds",
-                "variables": {
-                    "folderId": folder,
-                    "pagination": { "limit": 30, "offset": (page - 1) * 30, "orderBy": "DATE_UPDATED", "status": "", "asc": true }
-                },
-                "query": "query folderComicIds($folderId: ID!, $pagination: Pagination!) {\n  folderComicIds(folderId: $folderId, pagination: $pagination) {\n    folderId\n    key\n    comicIds\n    __typename\n  }\n}"
-            })
-            let ids = json.data.folderComicIds.comicIds
-            if (ids.length === 0) {
-                return { comics: [], maxPage: 1 }
+            if (folder === Komiic.FAV_FOLDER_ID) {
+                // 加载心形收藏列表
+                let json = await this.queryJson({
+                    "operationName": "favoritesV2",
+                    "variables": { "pagination": { "limit": 30, "offset": (page - 1) * 30, "orderBy": "FAVORITE_ADDED", "asc": false } },
+                    "query": "query favoritesV2($pagination: Pagination!) {\n favoritesV2(pagination: $pagination) {\n id\n comicId\n dateAdded\n lastAccess\n __typename\n }\n}"
+                })
+                let favs = json.data.favoritesV2
+                if (!favs || favs.length === 0) return { comics: [], maxPage: 1 }
+                let ids = favs.map(f => f.comicId)
+                let res = await this.queryComics({
+                    "operationName": "comicByIds",
+                    "variables": { "comicIds": ids },
+                    "query": "query comicByIds($comicIds: [ID]!) {\n comicByIds(comicIds: $comicIds) {\n id\n title\n status\n year\n imageUrl\n authors {\n id\n name\n __typename\n }\n categories {\n id\n name\n __typename\n }\n dateUpdated\n monthViews\n views\n favoriteCount\n lastBookUpdate\n lastChapterUpdate\n __typename\n }\n}"
+                })
+                // 按收藏顺序排序
+                let order = {}
+                ids.forEach((cid, i) => order[cid] = i)
+                res.comics.sort((a, b) => (order[a.id] ?? 9999) - (order[b.id] ?? 9999))
+                res.maxPage = favs.length < 30 ? page : page + 1
+                return res
+            } else {
+                // 加载自定义文件夹
+                let json = await this.queryJson({
+                    "operationName": "folderComicIds",
+                    "variables": {
+                        "folderId": folder,
+                        "pagination": { "limit": 30, "offset": (page - 1) * 30, "orderBy": "DATE_UPDATED", "status": "", "asc": true }
+                    },
+                    "query": "query folderComicIds($folderId: ID!, $pagination: Pagination!) {\n  folderComicIds(folderId: $folderId, pagination: $pagination) {\n    folderId\n    key\n    comicIds\n    __typename\n  }\n}"
+                })
+                let ids = json.data.folderComicIds.comicIds
+                if (ids.length === 0) {
+                    return { comics: [], maxPage: 1 }
+                }
+                let res = await this.queryComics({
+                    "operationName": "comicByIds",
+                    "variables": { "comicIds": ids },
+                    "query": "query comicByIds($comicIds: [ID]!) {\n  comicByIds(comicIds: $comicIds) {\n    id\n    title\n    status\n    year\n    imageUrl\n    authors {\n      id\n      name\n      __typename\n    }\n    categories {\n      id\n      name\n      __typename\n    }\n    dateUpdated\n    monthViews\n    views\n    favoriteCount\n    lastBookUpdate\n    lastChapterUpdate\n    __typename\n  }\n}"
+                })
+                res.maxPage = ids.length < 30 ? page : page + 1
+                return res
             }
-            let res = await this.queryComics({
-                "operationName": "comicByIds",
-                "variables": { "comicIds": ids },
-                "query": "query comicByIds($comicIds: [ID]!) {\n  comicByIds(comicIds: $comicIds) {\n    id\n    title\n    status\n    year\n    imageUrl\n    authors {\n      id\n      name\n      __typename\n    }\n    categories {\n      id\n      name\n      __typename\n    }\n    dateUpdated\n    monthViews\n    views\n    favoriteCount\n    lastBookUpdate\n    lastChapterUpdate\n    __typename\n  }\n}"
-            })
-            res.maxPage = ids.length < 30 ? page : page + 1
-            return res
         }
     }
 
@@ -407,7 +469,7 @@ class Komiic extends ComicSource {
 
             let res = await this.queryComics({
                 "operationName": "comicByIds", "variables": { "comicIds": recommend },
-                "query": "query comicByIds($comicIds: [ID]!) {\n comicByIds(comicIds: $comicIds) {\n id\n title\n status\n year\n imageUrl\n authors {\n id\n name\n __typename\n }\n categories {\n id\n name\n __typename\n }\n dateUpdated\n monthViews\n views\n favoriteCount\n lastBookUpdate\n lastChapterUpdate\n __typename\n }\n}"
+                "query": "query comicByIds($comicIds: [ID]!) {\n comicByIds(comicIds: $comicIds) {\n id\n title\n status\n year\n imageUrl\n isFavorite\n authors {\n id\n name\n __typename\n }\n categories {\n id\n name\n __typename\n }\n dateUpdated\n monthViews\n views\n favoriteCount\n lastBookUpdate\n lastChapterUpdate\n __typename\n }\n}"
             })
 
             let info = res.comics.pop()
@@ -419,7 +481,7 @@ class Komiic extends ComicSource {
                 chapters: chapMap,
                 recommend: res.comics,
                 updateTime: info.updateTime,
-                isFavorite: false  // 不使用心形收藏
+                isFavorite: info.isFavorite   // 心形收藏状态
             }
         },
 
@@ -724,7 +786,7 @@ class Komiic extends ComicSource {
         throw 'getImageLimit failed'
     }
 
-    // ========== 设置（已移除主账号登录和退出） ==========
+    // ========== 设置 ==========
     settings = {
         help: {
             title: "使用帮助",
@@ -733,7 +795,9 @@ class Komiic extends ComicSource {
             callback: () => {
                 UI.showDialog("Komiic 多账号帮助",
 `• 主账号：通过应用内标准登录入口登录，负责收藏/评论等所有操作
-• 收藏：使用自定义文件夹（与 komiic 网页端书柜同步），仅主账号可操作
+• 收藏：支持两种方式
+  - 「收藏」文件夹 = 心形收藏（profile 页的收藏），使用 addFavorite/removeFavorite
+  - 自建文件夹 = 书柜文件夹，使用 addComicToFolder/removeComicToFolder
 • 附属账号：点「添加附属账号」添加，仅用于看图额度池化，看图时自动登录
 • 看图优先用主号，主号额度用尽自动切附属号，到点自动恢复，全程无需手动
 • API 默认使用 komiic.cc（国内可直连）；若需切换，可在下方「节点选择」中选取预置节点或自定义
