@@ -89,5 +89,19 @@
         "key": "pixiv",
         "version": "1.4.4",
         "description":  "丰富的登录方式，几乎全部功能移植，目前无法攻破多账号问题"
+    },
+    {
+        "name": "少年ジャンプ＋",
+        "fileName": "shonen_jump_plus.js",
+        "key": "shonen_jump_plus",
+        "version": "1.1.2",
+        "description": "ai修复，功能可用"
+    },
+    {
+        "name": "カドコミ",
+        "fileName": "comic_walker.js",
+        "key": "comic_walker",
+        "version": "1.1.0",
+        "description": "ai修复，功能可用"
     }
 ]
