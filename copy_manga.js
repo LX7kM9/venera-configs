@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "1.9.13"   // 兼容旧版本 sub_accounts 数据
+    version = "2.0.3"   // 兼容旧版本 sub_accounts 数据
 
     minAppVersion = "1.6.0"
 
