@@ -75,5 +75,12 @@
         "key": "manga_dex",
         "version": "1.9.3",
         "description":  "非个人自制，仅修复翻译问题"
+    },
+    {
+        "name": "Komiic",
+        "fileName": "komiic.js",
+        "key": "Komiic",
+        "version": "1.7.8",
+        "description": "多账号登录优化（仅支持主账号收藏夹），支持自填写api和预置api，优化功能触发后的反馈"
     }
 ]
