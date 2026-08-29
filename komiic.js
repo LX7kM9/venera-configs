@@ -1,7 +1,7 @@
 class Komiic extends ComicSource {
     name = "Komiic"
     key = "Komiic"          // 与文件名一致，确保数据存储正确
-    version = "1.7.11"      // 使用最小ID "0" 确保“收藏”排在最前
+    version = "1.8.1"      // 使用最小ID "0" 确保“收藏”排在最前
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/Komiic.js"
 
