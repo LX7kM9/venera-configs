@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "1.9.0"   // 版本号递增
+    version = "1.9.12"   // 更新使用帮助，全面介绍所有功能
 
     minAppVersion = "1.6.0"
 
@@ -151,6 +151,19 @@ class CopyManga extends ComicSource {
 
     get imageQuality() {
         return this.loadSetting('image_quality') || this.defaultImageQuality
+    }
+
+    // ========== 附属账号存储（仅使用 data） ==========
+    _getSubAccounts() {
+        let data = this.loadData('sub_accounts');
+        if (data) {
+            try { return JSON.parse(data); } catch(e) {}
+        }
+        return [];
+    }
+
+    _setSubAccounts(arr) {
+        this.saveData('sub_accounts', JSON.stringify(arr));
     }
 
     // ========== 初始化 ==========
@@ -341,7 +354,7 @@ class CopyManga extends ComicSource {
             let folders = new Map();
             folders.set("-1", "全部");
             folders.set("0", "主号");
-            let subAccounts = JSON.parse(this.loadSetting('sub_accounts') || '[]');
+            let subAccounts = this._getSubAccounts();
             for (let i = 0; i < subAccounts.length; i++) folders.set(String(i + 1), subAccounts[i].name);
             let favorited = [];
             if (comicId) favorited = await this._checkFavoriteAccounts(comicId);
@@ -404,7 +417,7 @@ class CopyManga extends ComicSource {
     }
 
     async _checkFavoriteAccounts(comicId) {
-        let subAccounts = JSON.parse(this.loadSetting('sub_accounts') || '[]');
+        let subAccounts = this._getSubAccounts();
         let totalAccounts = 1 + subAccounts.length;
         let checks = [];
         for (let i = 0; i < totalAccounts; i++) {
@@ -433,7 +446,7 @@ class CopyManga extends ComicSource {
         let streams = [];
         let mainToken = this.loadData('account_token_0');
         if (mainToken) streams.push({ name: '主号', token: mainToken, eliminated: 0, total: -1 });
-        let subAccounts = JSON.parse(this.loadSetting('sub_accounts') || '[]');
+        let subAccounts = this._getSubAccounts();
         for (let i = 0; i < subAccounts.length; i++) {
             let t = this.loadData(`account_token_${i + 1}`);
             if (!t) continue;
@@ -723,14 +736,36 @@ class CopyManga extends ComicSource {
             buttonText: "查看帮助",
             callback: () => {
                 if (typeof UI !== 'undefined' && UI.showDialog) {
-                    UI.showDialog("拷贝漫画多账号帮助",
-`集成多账号收藏功能：
-• 主账号：通过APP标准登录入口登录（用于评论、看漫画）
-• 附属账号：在下方"附属账号列表"中配置，仅用于收藏合并
-• 收藏："全部"视图合并所有账号收藏（去重），其他文件夹查看单个账号
-• 排序方式仅对单个账号有效，"全部"固定按更新时间排序
-附属账号配置格式：[{"name":"显示名","username":"用户名","password":"密码"}]
-密码以明文存储，请注意安全。`, [{text: "知道了", callback: () => {}}]);
+                    UI.showDialog("拷贝漫画多账号插件 - 使用帮助",
+`【功能介绍与使用说明】
+
+1. 主账号
+   - 通过APP标准登录入口（或插件设置中的主账号登录）登录，用于评论、发送吐槽、收藏等操作。
+   - 退出登录可清除主账号Token，不影响附属账号。
+
+2. 附属账号（仅用于收藏合并）
+   - 点击「添加附属账号」依次输入显示名称、用户名、密码，配置后需点击「登录所有附属账号」获取Token。
+   - 收藏文件夹中会按顺序显示主号、各附属号，以及一个「全部」合并视图（去重，按更新时间排序）。
+
+3. 收藏功能
+   - 可对单部漫画进行收藏/取消收藏，选择主号或某个附属号操作。
+   - 「全部」视图自动合并所有账号的收藏，并按更新时间倒序排列，重复项自动去重。
+
+4. 节点与API
+   - 节点选择：预置多个镜像节点（网页/API），也可选择「自定义」并填写API地址。
+   - 节点速度测试：点击可检测各节点响应时间，辅助选择最佳节点（绿色✅为可用，红色❌为不可用或超时）。
+
+5. 其他设置
+   - 图片质量：低(800)、中(1200)、高(1500)，影响加载清晰度与流量消耗。
+   - 搜索方式：基础API（默认）或网页端API，若搜索异常可切换尝试。
+   - 收藏排序方式：可单独设置各账号收藏列表的排序（更新时间、收藏时间、阅读时间），仅对单个账号有效，「全部」固定按更新时间。
+   - CDN线路：海外线路（推荐防风控）或大陆线路，遇到风控时可尝试切换。
+   - 设备指纹重置：切换真实设备指纹，有助于规避风控，点击后立即生效。
+
+6. 安全提醒
+   - 附属账号密码以明文形式存储在本地，请确保设备安全，谨慎使用。
+
+如有问题，请查看插件更新或联系开发者。`, [{text: "知道了", callback: () => {}}]);
                 }
             }
         },
@@ -808,13 +843,11 @@ class CopyManga extends ComicSource {
             default: CopyManga.defaultApiUrl,
             description: "当节点选择为“自定义”时生效"
         },
-        // ---------- 优化后的速度测试 ----------
         speedtest: {
             title: "节点速度测试",
             type: "callback",
             buttonText: "测试所有节点速度",
-            callback: async function() {
-                const self = this;
+            callback: async () => {
                 if (typeof UI !== 'undefined' && UI.showLoading) {
                     UI.showLoading('正在测试节点速度...');
                 }
@@ -841,7 +874,6 @@ class CopyManga extends ComicSource {
                         'www.copy4000.com',
                         'api.copy4000.com'
                     ];
-                    // 使用并行请求，每个请求设置5秒超时
                     const timeoutPromise = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                     const testHost = async (host) => {
                         const start = Date.now();
@@ -851,22 +883,16 @@ class CopyManga extends ComicSource {
                             });
                             const res = await Promise.race([fetchPromise, timeoutPromise(5000)]);
                             if (res === undefined) {
-                                // 超时
                                 return { host, success: false, latency: 999999, status: 0, timeout: true };
                             }
                             const latency = Date.now() - start;
-                            if (res.status === 200) {
-                                const body = res.body.toLowerCase();
-                                const isValid = body.includes('content-box') || body.includes('swiperlist') || body.includes('comicrank');
-                                return { host, success: isValid, latency, status: res.status };
-                            } else {
-                                return { host, success: false, latency, status: res.status };
-                            }
+                            // 放宽判断：状态码 2xx/3xx 且响应体非空即视为成功
+                            const isSuccess = (res.status >= 200 && res.status < 400) && res.body && res.body.length > 0;
+                            return { host, success: isSuccess, latency, status: res.status };
                         } catch (e) {
                             return { host, success: false, latency: 999999, status: 0 };
                         }
                     };
-                    // 并发执行所有测试
                     const promises = hosts.map(host => testHost(host));
                     const resultsArray = await Promise.allSettled(promises);
                     const results = {};
@@ -878,9 +904,6 @@ class CopyManga extends ComicSource {
                                 latency: r.latency,
                                 status: r.status
                             };
-                        } else {
-                            // 如果某个请求完全失败，标记为超时
-                            // 但由于上面已有超时机制，这里仅作兜底
                         }
                     }
                     let msg = "节点速度测试结果：\n";
@@ -906,7 +929,6 @@ class CopyManga extends ComicSource {
                 }
             }
         },
-        // ---------- 重置设备指纹池 ----------
         clear_device_info: {
             title: "重置设备指纹池",
             type: "callback",
@@ -925,19 +947,89 @@ class CopyManga extends ComicSource {
                 }
             }
         },
-        // ---------- 附属账号管理 ----------
-        sub_accounts: {
-            title: "附属账号列表",
-            type: "input",
-            default: "[{\"name\":\"小号1\",\"username\":\"用户名1\",\"password\":\"密码1\"}]",
-            description: "仅用于收藏合并。主账号请通过APP标准登录入口登录"
+
+        // ---------- 添加附属账号 ----------
+        add_sub_account: {
+            title: "添加附属账号",
+            type: "callback",
+            buttonText: "添加附属账号（弹窗输入）",
+            callback: async () => {
+                let name = await UI.showInputDialog("附属账号 - 显示名称", (v) => v && v.trim() ? null : "名称不能为空");
+                if (!name) return;
+                name = name.trim();
+                let username = await UI.showInputDialog("附属账号 - 用户名", (v) => v && v.trim() ? null : "用户名不能为空");
+                if (!username) return;
+                username = username.trim();
+                let password = await UI.showInputDialog("附属账号 - 密码", (v) => v ? null : "密码不能为空");
+                if (!password) return;
+                let subs = this._getSubAccounts();
+                subs.push({ name, username, password });
+                this._setSubAccounts(subs);
+                UI.showMessage(`已添加附属账号「${name}」，请点击「登录所有附属账号」完成登录`);
+            }
         },
+
+        // ---------- 管理附属账号 ----------
+        manage_sub_accounts: {
+            title: "管理附属账号",
+            type: "callback",
+            buttonText: "查看 / 删除附属账号",
+            callback: async () => {
+                let subs = this._getSubAccounts();
+                if (subs.length === 0) {
+                    UI.showMessage("还没有附属账号，请先点「添加附属账号」");
+                    return;
+                }
+                let options = subs.map((s, i) => `${i + 1}. ${s.name} (${s.username})`);
+                options.push("—— 清空全部附属账号 ——");
+                let idx = await UI.showSelectDialog("选择要删除的附属账号", options);
+                if (idx === null || idx === undefined) return;
+                if (idx === subs.length) {
+                    UI.showDialog("确认清空", `将删除全部 ${subs.length} 个附属账号配置及其 token，确定？`, [
+                        { text: "清空", style: "danger", callback: () => {
+                            for (let i = 0; i < subs.length; i++) this.deleteData(`account_token_${i + 1}`);
+                            this._setSubAccounts([]);
+                            this._clearMergeState();
+                            UI.showMessage("已清空全部附属账号");
+                        }},
+                        { text: "取消", callback: () => {} }
+                    ]);
+                    return;
+                }
+                let target = subs[idx];
+                UI.showDialog("确认删除", `删除「${target.name}」(${target.username})？`, [
+                    { text: "删除", style: "danger", callback: () => {
+                        for (let i = idx; i < subs.length - 1; i++) {
+                            let t = this.loadData(`account_token_${i + 2}`);
+                            if (t) this.saveData(`account_token_${i + 1}`, t);
+                        }
+                        this.deleteData(`account_token_${subs.length}`);
+                        subs.splice(idx, 1);
+                        this._setSubAccounts(subs);
+                        this._clearMergeState();
+                        UI.showMessage(`已删除「${target.name}」`);
+                    }},
+                    { text: "取消", callback: () => {} }
+                ]);
+            }
+        },
+
+        // ---------- 登录所有附属账号（含正在登录提示） ----------
         login_sub_accounts: {
             title: "登录附属账号",
             type: "callback",
             buttonText: "登录所有附属账号",
             callback: async () => {
-                let subAccounts = JSON.parse(this.loadSetting('sub_accounts') || '[]');
+                let subAccounts = this._getSubAccounts();
+                if (subAccounts.length === 0) {
+                    UI.showMessage("没有附属账号，请先添加");
+                    return;
+                }
+                if (typeof UI !== 'undefined' && UI.showMessage) {
+                    UI.showMessage('正在登录附属账号...');
+                } else if (typeof APP !== 'undefined' && APP.toast) {
+                    APP.toast('正在登录附属账号...');
+                }
                 let ok = 0;
                 for (let i = 0; i < subAccounts.length; i++) {
                     let acc = subAccounts[i];
@@ -958,39 +1050,6 @@ class CopyManga extends ComicSource {
                     }
                 }
                 const msg = `附属账号登录: ${ok}/${subAccounts.length} 成功`;
-                if (typeof UI !== 'undefined' && UI.showMessage) {
-                    UI.showMessage(msg);
-                } else if (typeof APP !== 'undefined' && APP.toast) {
-                    APP.toast(msg);
-                } else {
-                    alert(msg);
-                }
-            }
-        },
-        clear_sub_accounts: {
-            title: "清除附属账号",
-            type: "callback",
-            buttonText: "清除所有附属账号TOKEN",
-            callback: async () => {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                let subAccounts = JSON.parse(this.loadSetting('sub_accounts') || '[]');
-                if (subAccounts.length === 0) {
-                    const msg = "没有附属账号需要清除";
-                    if (typeof UI !== 'undefined' && UI.showMessage) {
-                        UI.showMessage(msg);
-                    } else if (typeof APP !== 'undefined' && APP.toast) {
-                        APP.toast(msg);
-                    } else {
-                        alert(msg);
-                    }
-                    return;
-                }
-                for (let i = 0; i < subAccounts.length; i++) {
-                    this.deleteData(`account_token_${i + 1}`);
-                }
-                this._clearMergeState();
-                await new Promise(resolve => setTimeout(resolve, 800));
-                const msg = "已清除所有附属账号TOKEN";
                 if (typeof UI !== 'undefined' && UI.showMessage) {
                     UI.showMessage(msg);
                 } else if (typeof APP !== 'undefined' && APP.toast) {
