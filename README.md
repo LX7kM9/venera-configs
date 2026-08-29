@@ -1,4 +1,5 @@
 # venera-configs
+Use AI to modify expired comic sources or add new features.
 
 ## Link：
 ```
