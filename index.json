@@ -52,8 +52,8 @@
         "name": "拷贝漫画",
         "fileName": "copy_manga.js",
         "key": "copy_manga",
-        "version": "1.9.0",
-        "description": "多账号登录（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能反馈"
+        "version": "1.9.12",
+        "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈"
     },
     {
         "name": "漫蛙吧",
@@ -67,7 +67,7 @@
         "fileName": "recode-jm.js",
         "key": "jm",
         "version": "1.8.3",
-        "description":  "非个人自制"
+        "description":  "非个人自制，更新需点击插件卡片上的更新"
     },
     {
         "name": "MangaDex",
