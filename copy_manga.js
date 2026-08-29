@@ -982,7 +982,7 @@ class CopyManga extends ComicSource {
                     return;
                 }
                 let options = subs.map((s, i) => `${i + 1}. ${s.name} (${s.username})`);
-                options.push("—— 清空全部附属账号 ——");
+                options.push("清空全部附属账号");
                 let idx = await UI.showSelectDialog("选择要删除的附属账号", options);
                 if (idx === null || idx === undefined) return;
                 if (idx === subs.length) {
