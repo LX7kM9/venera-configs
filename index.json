@@ -52,7 +52,7 @@
         "name": "拷贝漫画",
         "fileName": "copy_manga.js",
         "key": "copy_manga",
-        "version": "1.9.12",
+        "version": "1.9.13",
         "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈"
     },
     {
