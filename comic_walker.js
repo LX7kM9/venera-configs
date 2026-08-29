@@ -4,7 +4,7 @@ class ComicWalker extends ComicSource {
   version = "1.1.0";
   minAppVersion = "1.6.0";
   url =
-    "https://cdn.jsdelivr.net/gh/Qing-Novel/venerax-configs@main/index.json";
+    "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
 
   api_key = "ytBrdQ2ZYdRQguqEusVLxQVUgakNnVht";
 
