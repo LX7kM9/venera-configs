@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "1.9.12"   // 更新使用帮助，全面介绍所有功能
+    version = "1.9.13"   // 兼容旧版本 sub_accounts 数据
 
     minAppVersion = "1.6.0"
 
@@ -153,11 +153,29 @@ class CopyManga extends ComicSource {
         return this.loadSetting('image_quality') || this.defaultImageQuality
     }
 
-    // ========== 附属账号存储（仅使用 data） ==========
+    // ========== 附属账号存储（兼容旧版 setting 数据） ==========
     _getSubAccounts() {
+        // 优先从 data 读取
         let data = this.loadData('sub_accounts');
         if (data) {
-            try { return JSON.parse(data); } catch(e) {}
+            try {
+                let arr = JSON.parse(data);
+                if (Array.isArray(arr)) return arr;
+            } catch(e) {}
+        }
+        // 如果 data 中没有，尝试从旧的 setting 中读取（兼容 v1.9.0 及以前版本）
+        let old = this.loadSetting('sub_accounts');
+        if (old) {
+            try {
+                let arr = JSON.parse(old);
+                if (Array.isArray(arr) && arr.length > 0) {
+                    // 迁移到 data 存储
+                    this.saveData('sub_accounts', old);
+                    // 可选的：删除旧 setting，避免重复读取（但保留也不影响）
+                    // 不删除，让用户自己决定是否清理
+                    return arr;
+                }
+            } catch(e) {}
         }
         return [];
     }
@@ -177,6 +195,8 @@ class CopyManga extends ComicSource {
             this.saveData("account_token_0", oldToken);
             this.deleteData("token");
         }
+        // 主动触发一次迁移，确保旧数据被读取并存入 data（如果存在）
+        this._getSubAccounts();
     }
 
     // ========== 主账号 ==========
@@ -764,6 +784,9 @@ class CopyManga extends ComicSource {
 
 6. 安全提醒
    - 附属账号密码以明文形式存储在本地，请确保设备安全，谨慎使用。
+
+7. 版本兼容
+   - 本次更新自动兼容旧版（1.9.0及以前）的附属账号配置数据，无需手动迁移。
 
 如有问题，请查看插件更新或联系开发者。`, [{text: "知道了", callback: () => {}}]);
                 }
