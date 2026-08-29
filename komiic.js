@@ -1,14 +1,14 @@
 class Komiic extends ComicSource {
     name = "Komiic"
     key = "Komiic"          // 与文件名一致，确保数据存储正确
-    version = "1.7.8"       // 修复 removeFavorite 选择集错误
+    version = "1.7.11"      // 使用最小ID "0" 确保“收藏”排在最前
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/Komiic.js"
 
     static API_BASE_DEFAULT = "https://komiic.cc"
     static REFERER = "https://komiic.cc/"
     static UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    static FAV_FOLDER_ID = "__komiic_favorites__"   // 虚拟“收藏”文件夹 ID
+    static FAV_FOLDER_ID = "0"   // 最小ID，确保排序第一
 
     /** API 基址：根据节点选择或自定义返回 */
     _apiBase() {
@@ -311,19 +311,19 @@ class Komiic extends ComicSource {
         multiFolder: true,
 
         loadFolders: async (comicId) => {
-            let folders = {}
-            // 添加虚拟“收藏”文件夹（心形收藏）
-            folders[Komiic.FAV_FOLDER_ID] = "收藏"
-
-            // 获取用户自定义文件夹
+            // 先获取自定义文件夹
             let json = await this.queryJson({
                 "operationName": "myFolder",
                 "variables": {},
                 "query": "query myFolder {\n folders {\n id\n key\n name\n views\n comicCount\n dateCreated\n dateUpdated\n __typename\n }\n}"
             })
+
+            // 构建有序对象：先放“收藏”（ID为"0"），再放其他文件夹
+            let orderedFolders = {};
+            orderedFolders[Komiic.FAV_FOLDER_ID] = "收藏";
             json.data.folders.forEach((f) => {
-                folders[f.id] = f.name
-            })
+                orderedFolders[f.id] = f.name;
+            });
 
             let favorited = []
             if (comicId) {
@@ -345,7 +345,7 @@ class Komiic extends ComicSource {
                 })
                 favorited = favorited.concat(folderJson.data.comicInAccountFolders)
             }
-            return { folders, favorited }
+            return { folders: orderedFolders, favorited }
         },
 
         addOrDelFavorite: async (comicId, folderId, isAdding) => {
