@@ -9,7 +9,7 @@ class Pixiv extends ComicSource {
     key = "pixiv"
     version = "1.4.4"  // 增加使用帮助（模仿 Komiic 风格）
     minAppVersion = "1.6.0"
-    url = "https://cdn.jsdelivr.net/gh/theoldman-lab/venera-configs@main/pixiv.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/pixiv.js"
 
     // ============================================================
     //  CONSTANTS
