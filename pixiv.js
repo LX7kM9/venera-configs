@@ -7,7 +7,7 @@ class Pixiv extends ComicSource {
     // ============================================================
     name = "Pixiv"
     key = "pixiv"
-    version = "1.4.4"  // 增加使用帮助（模仿 Komiic 风格）
+    version = "1.5.0"  // 增强AI检测：标题/描述/标签中检测 ai-generated 等关键词
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/pixiv.js"
 
@@ -29,11 +29,10 @@ class Pixiv extends ComicSource {
     }
 
     // ============================================================
-    //  INIT — 清除旧多账户数据，避免 Null check
+    //  INIT — 清除旧多账户数据
     // ============================================================
 
     init() {
-        // 删除所有多账户相关的存储键（如果存在）
         this.deleteData('sub_accounts')
         for (let i = 1; i <= 10; i++) {
             this.deleteData(`access_token_${i}`)
@@ -248,6 +247,36 @@ class Pixiv extends ComicSource {
     //  UTILITY
     // ============================================================
 
+    // 检测作品是否为 AI 生成（检查标题、描述、标签）
+    _isAIIllust(illust) {
+        if (!illust) return false;
+
+        // 1. 官方 ai_type 字段
+        if (illust.ai_type !== undefined && illust.ai_type !== null && illust.ai_type > 0) {
+            return true;
+        }
+
+        // 2. 提取所有文本
+        const texts = [];
+        if (illust.title) texts.push(illust.title);
+        if (illust.caption) texts.push(illust.caption);
+        if (illust.tags && Array.isArray(illust.tags)) {
+            for (let t of illust.tags) {
+                if (t.name) texts.push(t.name);
+                if (t.translated_name) texts.push(t.translated_name);
+            }
+        }
+
+        // 匹配关键词：AI生成、ai-generated、人工知能、人工智能、独立ai
+        const aiRegex = /AI生成|ai-generated|人工知能|人工智能|(?<![a-zA-Z])ai(?![a-zA-Z])/i;
+        for (let text of texts) {
+            if (text && aiRegex.test(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     parseIllust(illust) {
         let cover = illust.image_urls.medium
         if (illust.page_count > 1 && illust.meta_pages && illust.meta_pages.length > 0) {
@@ -255,6 +284,12 @@ class Pixiv extends ComicSource {
         }
         let tags = (illust.tags || []).map(function(t) { return t.translated_name || t.name })
         tags.push(illust.user.name)
+
+        // 检测 AI 并添加标签
+        if (this._isAIIllust(illust)) {
+            tags.push("AI生成")
+        }
+
         return new Comic({
             id: illust.id.toString(),
             title: illust.title,
@@ -288,8 +323,42 @@ class Pixiv extends ComicSource {
         })
     }
 
+    // ---------- 过滤辅助 ----------
+    _isR18(tags) {
+        if (!tags || !Array.isArray(tags)) return false
+        const hideR18 = this.loadSetting('hideR18')
+        const hideR18G = this.loadSetting('hideR18G')
+        if (!hideR18 && !hideR18G) return false
+
+        return tags.some(t => {
+            if (hideR18 && /\br-?18\b/i.test(t)) return true
+            if (hideR18G && /\br-?18g\b/i.test(t)) return true
+            return false
+        })
+    }
+
+    _isAI(tags) {
+        if (!this.loadSetting('hideAI')) return false
+        if (!tags || !Array.isArray(tags)) return false
+        return tags.some(t => /AI生成/i.test(t))
+    }
+
+    _filterR18(comics) {
+        if (!this.loadSetting('hideR18') && !this.loadSetting('hideR18G')) return comics
+        return comics.filter(c => !this._isR18(c.tags))
+    }
+
+    _filterAI(comics) {
+        if (!this.loadSetting('hideAI')) return comics
+        return comics.filter(c => !this._isAI(c.tags))
+    }
+
+    _filterAll(comics) {
+        return this._filterR18(this._filterAI(comics))
+    }
+
     // ============================================================
-    //  EXPLORE — 修复 Followed Artists 接口（移除 restrict 参数）
+    //  EXPLORE — Following 应用过滤，其余不应用
     // ============================================================
 
     explore = [
@@ -302,6 +371,7 @@ class Pixiv extends ComicSource {
                     : this.apiBase + '/v2/illust/follow?restrict=all'
                 let json = await this.apiGet(url)
                 let comics = (json.illusts || []).map((function(e) { return this.parseIllust(e) }).bind(this))
+                comics = this._filterAll(comics)
                 return { comics: comics, next: json.next_url || null }
             },
         },
@@ -336,7 +406,7 @@ class Pixiv extends ComicSource {
     ]
 
     // ============================================================
-    //  CATEGORY (unchanged)
+    //  CATEGORY — 应用过滤
     // ============================================================
 
     category = {
@@ -365,6 +435,7 @@ class Pixiv extends ComicSource {
                 let json = await this.apiGet(url)
                 let illusts = json.illusts || []
                 let comics = illusts.map((function(e) { return this.parseIllust(e) }).bind(this))
+                comics = this._filterAll(comics)
                 if (json.next_url) this.saveData('_tag_cursor', json.next_url)
                 else this.deleteData('_tag_cursor')
                 return { comics: comics, maxPage: json.next_url ? page + 1 : page }
@@ -375,6 +446,7 @@ class Pixiv extends ComicSource {
                     this.apiBase + '/v1/user/illusts?filter=for_android&user_id=' + param + '&offset=' + offset)
                 let illusts = json.illusts || []
                 let comics = illusts.map((function(e) { return this.parseIllust(e) }).bind(this))
+                comics = this._filterAll(comics)
                 let maxPage = illusts.length < 30 ? page : page + 1
                 return { comics: comics, maxPage: maxPage }
             }
@@ -407,6 +479,7 @@ class Pixiv extends ComicSource {
                 }
                 let json = await this.apiGet(url)
                 let comics = (json.illusts || []).map((function(e) { return this.parseIllust(e) }).bind(this))
+                comics = this._filterAll(comics)
                 if (json.next_url) this.saveData(cursorKey, json.next_url)
                 else this.deleteData(cursorKey)
                 return { comics: comics, maxPage: json.next_url ? page + 1 : page }
@@ -415,7 +488,7 @@ class Pixiv extends ComicSource {
     }
 
     // ============================================================
-    //  SEARCH — 包含 onTagSuggestionSelected 占位
+    //  SEARCH — 应用过滤
     // ============================================================
 
     search = {
@@ -456,8 +529,10 @@ class Pixiv extends ComicSource {
             if (searchTarget === 'users') {
                 let userPreviews = json.user_previews || []
                 comics = userPreviews.map((function(e) { return this.parseUserPreview(e) }).bind(this))
+                // 用户搜索结果不应用过滤
             } else {
                 comics = (json.illusts || []).map((function(e) { return this.parseIllust(e) }).bind(this))
+                comics = this._filterAll(comics)
             }
             return { comics: comics, next: json.next_url || null }
         },
@@ -499,7 +574,7 @@ class Pixiv extends ComicSource {
     }
 
     // ============================================================
-    //  FAVORITES — 完全还原 0.7.0 版本（单账号标签文件夹）
+    //  FAVORITES — 应用过滤
     // ============================================================
 
     favorites = {
@@ -559,37 +634,63 @@ class Pixiv extends ComicSource {
             let json = await this.apiGet(url)
             let illusts = json.illusts || []
             let comics = illusts.map((function(e) { return this.parseIllust(e) }).bind(this))
+            comics = this._filterAll(comics)
             let maxPage = illusts.length < 30 ? page : page + 1
             return { comics: comics, maxPage: maxPage }
         },
     }
 
     // ============================================================
-    //  COMIC — 包含 loadThumbnails 占位
+    //  COMIC — 保留 onThumbnailLoad，移除 loadThumbnails，加载全部插画
     // ============================================================
 
     comic = {
         loadInfo: async (id) => {
             if (id.startsWith('user_')) {
                 let userId = id.substring(5)
-                let userJson, illustsJson
+                let userJson
                 try {
                     userJson = await this.apiGet(
                         this.apiBase + '/v1/user/detail?filter=for_android&user_id=' + userId)
-                    illustsJson = await this.apiGet(
-                        this.apiBase + '/v1/user/illusts?filter=for_android&user_id=' + userId + '&offset=0')
                 } catch (e) {}
                 let user = userJson?.user
-                let illusts = illustsJson?.illusts || []
                 if (!user) throw 'User not found'
+
+                // 循环获取所有插画
+                let allIllusts = []
+                let offset = 0
+                let limit = 30
+                let maxPages = 100 // 安全限制，最多100页（3000作品）
+                let hasMore = true
+                let pageCount = 0
+
+                while (hasMore && pageCount < maxPages) {
+                    let illustsJson = await this.apiGet(
+                        this.apiBase + '/v1/user/illusts?filter=for_android&user_id=' + userId + '&offset=' + offset)
+                    let illusts = illustsJson.illusts || []
+                    if (illusts.length === 0) {
+                        hasMore = false
+                    } else {
+                        allIllusts = allIllusts.concat(illusts)
+                        offset += limit
+                        pageCount++
+                        if (illusts.length < limit) {
+                            hasMore = false
+                        }
+                    }
+                }
+
                 let tagsObj = {}
                 tagsObj['Artist'] = [user.name + ' |' + user.id]
                 let chapters = {}
-                if (illusts.length > 0) {
-                    for (let i = 0; i < illusts.length; i++) {
-                        chapters[illusts[i].id.toString()] = illusts[i].title
+                if (allIllusts.length > 0) {
+                    for (let i = 0; i < allIllusts.length; i++) {
+                        chapters[allIllusts[i].id.toString()] = allIllusts[i].title
                     }
+                } else {
+                    chapters['0'] = user.name
                 }
+
                 let isFollowed = false
                 if (this.loadData('user_id')) {
                     try {
@@ -600,21 +701,24 @@ class Pixiv extends ComicSource {
                     } catch (e) {}
                 }
                 this.saveData('_artist_of_' + userId, userId)
+
                 let desc = user.comment || ''
-                if (illusts.length === 0) {
+                if (allIllusts.length === 0) {
                     desc = (desc ? desc + '\n\n' : '') + 'No illustrations yet.'
                 }
+
                 return new ComicDetails({
                     title: user.name,
                     subtitle: user.account,
                     cover: user.profile_image_urls.medium,
                     description: desc,
                     tags: tagsObj,
-                    chapters: illusts.length > 0 ? chapters : { '0': user.name },
+                    chapters: chapters,
                     isLiked: isFollowed,
                     url: 'https://www.pixiv.net/users/' + user.id
                 })
             }
+            // 普通插画详情
             let json = await this.apiGet(
                 this.apiBase + '/v1/illust/detail?illust_id=' + id)
             let illust = json.illust
@@ -687,6 +791,7 @@ class Pixiv extends ComicSource {
             }
         },
 
+        // 保留 onThumbnailLoad，用于所有缩略图（列表封面）的请求头
         onThumbnailLoad: (url) => {
             return {
                 headers: {
@@ -696,7 +801,7 @@ class Pixiv extends ComicSource {
             }
         },
 
-        loadThumbnails: (comicIds) => { return {} },   // 占位
+        // 不提供 loadThumbnails，详情页预览区域将不显示任何内容
 
         likeComic: async (id, isLike) => {
             let artistId = this.loadData('_artist_of_' + id)
@@ -800,11 +905,31 @@ class Pixiv extends ComicSource {
             }
         },
 
-        idMatch: "^\\d+$",
+        // ========== 新增链接解析 ==========
+        link: {
+            domains: [
+                'pixiv.net',
+                'www.pixiv.net'
+            ],
+            linkToId: (url) => {
+                // 匹配插画链接: https://www.pixiv.net/artworks/149065475
+                let match = url.match(/\/artworks\/(\d+)/);
+                if (match) return match[1];
+                
+                // 匹配作者链接: https://www.pixiv.net/users/124304491
+                match = url.match(/\/users\/(\d+)/);
+                if (match) return 'user_' + match[1];
+                
+                return null;
+            }
+        },
+
+        // 修改 idMatch 以支持 user_ 前缀
+        idMatch: "^(\\d+|user_\\d+)$",
     }
 
     // ============================================================
-    //  ACCOUNT — url 为普通属性（IIFE），不是 getter
+    //  ACCOUNT — 手动输入优先
     // ============================================================
 
     account = {
@@ -869,6 +994,8 @@ class Pixiv extends ComicSource {
 
         login: async (account, pwd) => {
             console.log('[Pixiv] login() called, account=' + !!account)
+
+            // 1) PKCE
             let code = this.loadData('_pkce_code')
             if (code) {
                 console.log('[Pixiv] login: path 1 - PKCE code exchange')
@@ -876,6 +1003,8 @@ class Pixiv extends ComicSource {
                 if (ok) return 'ok'
                 throw 'Login failed: unable to exchange authorization code'
             }
+
+            // 2) pending refresh_token
             let pending = this.loadData('pending_refresh_token')
             if (pending) {
                 console.log('[Pixiv] login: path 2 - pending refresh_token exchange')
@@ -883,18 +1012,11 @@ class Pixiv extends ComicSource {
                 if (ok) return 'ok'
                 throw 'Login failed: unable to exchange webview token'
             }
-            if (this.loadData('refresh_token')) {
-                console.log('[Pixiv] login: path 3 - refresh existing token')
-                try {
-                    await this.refreshToken()
-                    return 'ok'
-                } catch (e) {
-                    throw 'Login failed: unable to refresh token'
-                }
-            }
+
+            // 3) 手动输入 refresh_token（优先于自动刷新）
             let manual = (account || '').trim()
             if (manual) {
-                console.log('[Pixiv] login: path 4 - manual refresh_token')
+                console.log('[Pixiv] login: path 3 - manual refresh_token (override)')
                 this.saveData('refresh_token', manual)
                 try {
                     await this.refreshToken()
@@ -904,6 +1026,18 @@ class Pixiv extends ComicSource {
                     throw 'Login failed: invalid refresh token'
                 }
             }
+
+            // 4) 自动刷新已存储的 refresh_token
+            if (this.loadData('refresh_token')) {
+                console.log('[Pixiv] login: path 4 - refresh existing token')
+                try {
+                    await this.refreshToken()
+                    return 'ok'
+                } catch (e) {
+                    throw 'Login failed: unable to refresh token'
+                }
+            }
+
             console.log('[Pixiv] login: FAILED - no token available')
             throw 'Please login via WebView first, or provide a valid refresh_token'
         },
@@ -943,7 +1077,7 @@ class Pixiv extends ComicSource {
     }
 
     // ============================================================
-    //  SETTINGS — 添加使用帮助（模仿 Komiic 风格）
+    //  SETTINGS
     // ============================================================
 
     settings = {
@@ -953,14 +1087,16 @@ class Pixiv extends ComicSource {
             buttonText: "查看帮助",
             callback: () => {
                 UI.showDialog("Pixiv 使用帮助",
-`• 登录方式：支持通过 WebView 登录（自动完成 PKCE 流程）或手动输入 Refresh Token（在设置页「主账号快捷登录」处使用）。
-• 收藏夹：使用 Pixiv 的收藏标签作为文件夹，您可以在收藏作品时添加任意标签，系统自动归类：
+`• 登录：支持通过WebView登录或手动输入 Refresh Token登录。
+• 收藏：使用Pixiv的收藏标签作为文件夹，您可以在收藏作品时添加任意标签，系统自动归类：
   - 「默认」文件夹存放未加标签的收藏。
   - 自建标签会出现在列表，点击可筛选该标签下的作品。
-• 搜索与排行榜：支持按标签、标题、用户搜索，排行榜提供日、周、月及多种细分榜单（包括 AI 分类）。
+• 搜索与排行榜：支持按标签、标题、用户搜索，排行榜提供日、周、月及多种细分榜单（包括AI分类），支持解析插画/画师链接和pid。
 • 探索页：包含「关注」「推荐画师」「已关注画师」三个入口，方便快速浏览。
-• API 地址：默认使用官方 API，若需更换镜像或自定义节点，可在下方「API 地址」中修改（需为 https:// 开头）。
-• Refresh Token 等凭证仅存储在本地，不会上传或泄露，请妥善保管。`, [{text: "知道了", callback: () => {}}])
+• 屏蔽R18/R18G/AI：可在下方开关中开启，开启后将在收藏夹、搜索、排行榜、关注动态等列表中过滤相应作品（R18/R18G只在推荐画师中不生效，AI只在搜索结果中生效）。
+• API地址：默认使用官方API，若需更换镜像或自定义节点，可在下方「API 地址」中修改（需为https://开头）。
+• 关注画师可通过页面有上角打开网页关注。
+• Refresh Token等凭证仅存储在本地，不会上传或泄露，请妥善保管。`, [{text: "知道了", callback: () => {}}])
             }
         },
         apiHost: {
@@ -970,7 +1106,7 @@ class Pixiv extends ComicSource {
             validator: "^https?://.+"
         },
         login_main_with_token: {
-            title: "主账号快捷登录",
+            title: "账号快捷登录",
             type: "callback",
             buttonText: "使用 Refresh Token 登录",
             callback: async () => {
@@ -979,17 +1115,32 @@ class Pixiv extends ComicSource {
                 token = token.trim()
                 try {
                     await this.account.login(token, "")
-                    UI.showMessage("主账号登录成功")
+                    UI.showMessage("登录成功")
                 } catch (e) {
                     UI.showDialog("登录失败", String(e), [{text: "确定", callback: () => {}}])
                 }
                 return
             }
+        },
+        hideR18: {
+            title: "屏蔽R18内容",
+            type: "switch",
+            default: false,
+        },
+        hideR18G: {
+            title: "屏蔽R18G内容",
+            type: "switch",
+            default: false,
+        },
+        hideAI: {
+            title: "屏蔽AI内容",
+            type: "switch",
+            default: false,
         }
     }
 
     // ============================================================
-    //  TRANSLATION (保留常用项)
+    //  TRANSLATION
     // ============================================================
 
     translation = {
@@ -1024,22 +1175,31 @@ class Pixiv extends ComicSource {
             'R18': 'R18',
             'AI': 'AI',
             'R18 AI': 'R18 AI',
-            '主账号快捷登录': '主账号快捷登录',
+            '账号快捷登录': '账号快捷登录',
             '使用 Refresh Token 登录': '使用 Refresh Token 登录',
+            '屏蔽R18内容': '屏蔽R18内容',
+            '屏蔽R18G内容': '屏蔽R18G内容',
+            '屏蔽AI内容': '屏蔽AI内容',
         },
         'zh_TW': {
             '使用帮助': '使用說明',
             '查看帮助': '查看說明',
             'API Host': 'API 位址',
-            '主账号快捷登录': '主帳號快捷登入',
+            '账号快捷登录': '帳號快捷登入',
             '使用 Refresh Token 登录': '使用 Refresh Token 登入',
+            '屏蔽R18内容': '屏蔽R18內容',
+            '屏蔽R18G内容': '屏蔽R18G內容',
+            '屏蔽AI内容': '屏蔽AI內容',
         },
         'en': {
             '使用帮助': 'Help',
             '查看帮助': 'View Help',
             'API Host': 'API Host',
-            '主账号快捷登录': 'Quick Main Account Login',
+            '账号快捷登录': 'Quick Account Login',
             '使用 Refresh Token 登录': 'Login with Refresh Token',
+            '屏蔽R18内容': 'Hide R18 Content',
+            '屏蔽R18G内容': 'Hide R18G Content',
+            '屏蔽AI内容': 'Hide AI Content',
         }
     }
 }

@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "2.0.3"   // 兼容旧版本 sub_accounts 数据
+    version = "2.0.7"   // 增加链接跳转支持
 
     minAppVersion = "1.6.0"
 
@@ -153,9 +153,8 @@ class CopyManga extends ComicSource {
         return this.loadSetting('image_quality') || this.defaultImageQuality
     }
 
-    // ========== 附属账号存储（兼容旧版 setting 数据） ==========
+    // ========== 附属账号存储（仅使用 data，不依赖 setting） ==========
     _getSubAccounts() {
-        // 优先从 data 读取
         let data = this.loadData('sub_accounts');
         if (data) {
             try {
@@ -163,25 +162,16 @@ class CopyManga extends ComicSource {
                 if (Array.isArray(arr)) return arr;
             } catch(e) {}
         }
-        // 如果 data 中没有，尝试从旧的 setting 中读取（兼容 v1.9.0 及以前版本）
-        let old = this.loadSetting('sub_accounts');
-        if (old) {
-            try {
-                let arr = JSON.parse(old);
-                if (Array.isArray(arr) && arr.length > 0) {
-                    // 迁移到 data 存储
-                    this.saveData('sub_accounts', old);
-                    // 可选的：删除旧 setting，避免重复读取（但保留也不影响）
-                    // 不删除，让用户自己决定是否清理
-                    return arr;
-                }
-            } catch(e) {}
-        }
         return [];
     }
 
     _setSubAccounts(arr) {
-        this.saveData('sub_accounts', JSON.stringify(arr));
+        let json = JSON.stringify(arr);
+        this.saveData('sub_accounts', json);
+        // 同步到 setting 以确保框架能读取到（避免空指针）
+        if (typeof this.saveSetting === 'function') {
+            this.saveSetting('sub_accounts', json);
+        }
     }
 
     // ========== 初始化 ==========
@@ -195,8 +185,24 @@ class CopyManga extends ComicSource {
             this.saveData("account_token_0", oldToken);
             this.deleteData("token");
         }
-        // 主动触发一次迁移，确保旧数据被读取并存入 data（如果存在）
-        this._getSubAccounts();
+        // 迁移旧 setting 中的 sub_accounts 到 data
+        let oldSetting = this.loadSetting('sub_accounts');
+        if (oldSetting) {
+            try {
+                let arr = JSON.parse(oldSetting);
+                if (Array.isArray(arr) && arr.length > 0) {
+                    this.saveData('sub_accounts', oldSetting);
+                }
+            } catch(e) {}
+        }
+        // 确保 data 中至少存在空数组
+        if (!this.loadData('sub_accounts')) {
+            this.saveData('sub_accounts', '[]');
+        }
+        // 同步到 setting（如果 saveSetting 可用且 setting 中无值，则写入空数组）
+        if (typeof this.saveSetting === 'function' && !this.loadSetting('sub_accounts')) {
+            this.saveSetting('sub_accounts', '[]');
+        }
     }
 
     // ========== 主账号 ==========
@@ -745,10 +751,42 @@ class CopyManga extends ComicSource {
             if (namespace === "标签") return { action: 'category', keyword: tag, param: null };
             if (namespace === "作者") return { action: 'search', keyword: `${namespace}:${tag}`, param: null };
             throw "未支持此类Tag检索";
-        }
+        },
+
+        // ========== 新增链接跳转 ==========
+        link: {
+            domains: [
+                'www.2025copy.com',
+                'www.2026copy.com',
+                'www.2027copy.com',
+                'www.copy20.com',
+                'www.mangacopy.com',
+                'www.copy-manga.com',
+                'www.copymanga.tv',
+                'www.copy2000.online',
+                'www.copy2000.site',
+                'www.copy3000.com',
+                'www.copy4000.com',
+                // 如有其他 www 镜像，可在此补充
+            ],
+            linkToId: (url) => {
+                // 匹配 /h5/details/comic/ 或 /details/comic/ 后面的 path_word
+                let match = url.match(/\/h5\/details\/comic\/([^/?]+)/);
+                if (match) return match[1];
+                
+                // 兼容可能存在的其他路径格式
+                match = url.match(/\/details\/comic\/([^/?]+)/);
+                if (match) return match[1];
+                
+                return null;
+            }
+        },
+
+        // 修改 idMatch 以支持 path_word 格式（字母、数字、下划线、连字符等）
+        idMatch: "^[A-Za-z0-9_-]+$",
     }
 
-    // ========== 设置项 ==========
+    // ========== 设置项（无 sub_accounts） ==========
     settings = {
         help: {
             title: "使用帮助",
@@ -828,8 +866,8 @@ class CopyManga extends ComicSource {
                 { value: 'api.copy2000.online', text: 'copy2000.online（api）' },
                 { value: 'www.copy2000.site', text: 'copy2000.site（网页）' },
                 { value: 'mapi.copy2000.site', text: 'copy2000.site（api）' },
-                { value: 'api.copy3000.com', text: 'copy3000.com（api）' },
                 { value: 'www.copy3000.com', text: 'copy3000.com（网页）' },
+                { value: 'api.copy3000.com', text: 'copy3000.com（api）' },
                 { value: 'www.copy4000.com', text: 'copy4000.com（网页）' },
                 { value: 'api.copy4000.com', text: 'copy4000.com（api）' },
                 { value: 'custom', text: '自定义（使用API地址）' }
@@ -887,7 +925,6 @@ class CopyManga extends ComicSource {
                                 return { host, success: false, latency: 999999, status: 0, timeout: true };
                             }
                             const latency = Date.now() - start;
-                            // 放宽判断：状态码 2xx/3xx 且响应体非空即视为成功
                             const isSuccess = (res.status >= 200 && res.status < 400) && res.body && res.body.length > 0;
                             return { host, success: isSuccess, latency, status: res.status };
                         } catch (e) {

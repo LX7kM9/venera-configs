@@ -1,14 +1,14 @@
 class Komiic extends ComicSource {
     name = "Komiic"
-    key = "Komiic"          // 与文件名一致，确保数据存储正确
-    version = "1.8.1"      // 使用最小ID "0" 确保“收藏”排在最前
+    key = "Komiic"
+    version = "1.8.2"      // 增加链接解析
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/Komiic.js"
 
     static API_BASE_DEFAULT = "https://komiic.cc"
     static REFERER = "https://komiic.cc/"
     static UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    static FAV_FOLDER_ID = "0"   // 最小ID，确保排序第一
+    static FAV_FOLDER_ID = "0"
 
     /** API 基址：根据节点选择或自定义返回 */
     _apiBase() {
@@ -43,7 +43,6 @@ class Komiic extends ComicSource {
     }
 
     get headers() {
-        // 优先使用迁移后的 token
         let token = this.loadData("account_token_0") || this.loadData("token");
         let headers = {
             'Referer': Komiic.REFERER,
@@ -61,20 +60,17 @@ class Komiic extends ComicSource {
         this._imageTicketPromises = {}
         this._exhaustedAccounts = {}
 
-        // 1. 迁移旧 token（1.0.7 使用 "token"）
         let oldToken = this.loadData("token");
         if (oldToken && !this.loadData("account_token_0")) {
             this.saveData("account_token_0", oldToken);
         }
 
-        // 2. 迁移旧 account 数组 -> account_credentials（1.0.7 使用 account = [email, password]）
         let oldAccount = this.loadData("account");
         if (oldAccount && Array.isArray(oldAccount) && oldAccount.length >= 2) {
             let cred = this.loadData("account_credentials");
             if (!cred) {
                 this.saveData("account_credentials", { email: oldAccount[0], password: oldAccount[1] });
             }
-            // 保留旧的 account 数组，让 App 仍然识别为已登录状态
         }
     }
 
@@ -149,7 +145,7 @@ class Komiic extends ComicSource {
                 tags: tags,
                 description: getTimeDifference(updateTime),
                 updateTime: `${updateTime.getFullYear()}-${updateTime.getMonth() + 1}-${updateTime.getDate()}`,
-                isFavorite: comic.isFavorite === true   // 保留 isFavorite，用于心形收藏状态
+                isFavorite: comic.isFavorite === true
             }
         }
         return { comics: json.data[operationName].map(parseComic), maxPage: null }
@@ -166,7 +162,6 @@ class Komiic extends ComicSource {
             this.saveData(`account_token_${index}`, body.token)
             if (index === 0) {
                 this.saveData('account_credentials', { email, password })
-                // 保留旧的 account 数组，保证 App 登录状态识别
                 this.saveData('account', [email, password])
             }
             return "ok"
@@ -175,8 +170,6 @@ class Komiic extends ComicSource {
             this.deleteData(`account_token_${index}`)
             if (index === 0) {
                 this.deleteData('account_credentials')
-                // 不删除 account，避免 App 误判未登录（实际退出时用户可通过 App 标准入口退出）
-                // this.deleteData('account')
             }
         },
         registerWebsite: null
@@ -190,7 +183,6 @@ class Komiic extends ComicSource {
                 email = cred.email
                 password = cred.password
             } else {
-                // 回退到旧的 account 数组
                 let old = this.loadData("account")
                 if (old && Array.isArray(old) && old.length >= 2) {
                     email = old[0]
@@ -311,14 +303,12 @@ class Komiic extends ComicSource {
         multiFolder: true,
 
         loadFolders: async (comicId) => {
-            // 先获取自定义文件夹
             let json = await this.queryJson({
                 "operationName": "myFolder",
                 "variables": {},
                 "query": "query myFolder {\n folders {\n id\n key\n name\n views\n comicCount\n dateCreated\n dateUpdated\n __typename\n }\n}"
             })
 
-            // 构建有序对象：先放“收藏”（ID为"0"），再放其他文件夹
             let orderedFolders = {};
             orderedFolders[Komiic.FAV_FOLDER_ID] = "收藏";
             json.data.folders.forEach((f) => {
@@ -327,7 +317,6 @@ class Komiic extends ComicSource {
 
             let favorited = []
             if (comicId) {
-                // 检查是否在心形收藏中
                 let favJson = await this.queryJson({
                     "operationName": "comicByIds",
                     "variables": { "comicIds": [comicId] },
@@ -337,7 +326,6 @@ class Komiic extends ComicSource {
                 if (arr && arr.length > 0 && arr[0].isFavorite === true) {
                     favorited.push(Komiic.FAV_FOLDER_ID)
                 }
-                // 检查在哪些自定义文件夹中
                 let folderJson = await this.queryJson({
                     "operationName": "comicInAccountFolders",
                     "variables": { "comicId": comicId },
@@ -351,16 +339,13 @@ class Komiic extends ComicSource {
         addOrDelFavorite: async (comicId, folderId, isAdding) => {
             let query
             if (folderId === Komiic.FAV_FOLDER_ID) {
-                // 心形收藏
                 if (isAdding) {
-                    // addFavorite 返回 FavoriteV2!，需要选择集
                     query = {
                         "operationName": "addFavorite",
                         "variables": { "comicId": comicId },
                         "query": "mutation addFavorite($comicId: ID!) {\n  addFavorite(comicId: $comicId) {\n    __typename\n  }\n}"
                     }
                 } else {
-                    // removeFavorite 返回 Boolean!，不能有选择集
                     query = {
                         "operationName": "removeFavorite",
                         "variables": { "comicId": comicId },
@@ -368,7 +353,6 @@ class Komiic extends ComicSource {
                     }
                 }
             } else {
-                // 自定义文件夹（返回 Boolean!，无选择集）
                 query = isAdding
                     ? {
                         "operationName": "addComicToFolder",
@@ -395,7 +379,7 @@ class Komiic extends ComicSource {
         },
 
         deleteFolder: async (folderId) => {
-            if (folderId === Komiic.FAV_FOLDER_ID) return "ok"   // 不允许删除虚拟文件夹
+            if (folderId === Komiic.FAV_FOLDER_ID) return "ok"
             await this.queryJson({
                 "operationName": "removeFolder",
                 "variables": { "folderId": folderId },
@@ -406,7 +390,6 @@ class Komiic extends ComicSource {
 
         loadComics: async (page, folder) => {
             if (folder === Komiic.FAV_FOLDER_ID) {
-                // 加载心形收藏列表
                 let json = await this.queryJson({
                     "operationName": "favoritesV2",
                     "variables": { "pagination": { "limit": 30, "offset": (page - 1) * 30, "orderBy": "FAVORITE_ADDED", "asc": false } },
@@ -420,14 +403,12 @@ class Komiic extends ComicSource {
                     "variables": { "comicIds": ids },
                     "query": "query comicByIds($comicIds: [ID]!) {\n comicByIds(comicIds: $comicIds) {\n id\n title\n status\n year\n imageUrl\n authors {\n id\n name\n __typename\n }\n categories {\n id\n name\n __typename\n }\n dateUpdated\n monthViews\n views\n favoriteCount\n lastBookUpdate\n lastChapterUpdate\n __typename\n }\n}"
                 })
-                // 按收藏顺序排序
                 let order = {}
                 ids.forEach((cid, i) => order[cid] = i)
                 res.comics.sort((a, b) => (order[a.id] ?? 9999) - (order[b.id] ?? 9999))
                 res.maxPage = favs.length < 30 ? page : page + 1
                 return res
             } else {
-                // 加载自定义文件夹
                 let json = await this.queryJson({
                     "operationName": "folderComicIds",
                     "variables": {
@@ -481,7 +462,7 @@ class Komiic extends ComicSource {
                 chapters: chapMap,
                 recommend: res.comics,
                 updateTime: info.updateTime,
-                isFavorite: info.isFavorite   // 心形收藏状态
+                isFavorite: info.isFavorite
             }
         },
 
@@ -573,6 +554,19 @@ class Komiic extends ComicSource {
             if (!replyTo) replyTo = "0"
             await this.queryJson({ "operationName": "addMessageToComic", "variables": { "comicId": comicId, "message": content, "replyToId": replyTo }, "query": "mutation addMessageToComic($comicId: ID!, $replyToId: ID!, $message: String!) {\n addMessageToComic(message: $message, comicId: $comicId, replyToId: $replyToId) {\n id\n message\n comicId\n account {\n id\n nickname\n __typename\n }\n replyTo {\n id\n message\n account {\n id\n nickname\n profileText\n profileTextColor\n profileBackgroundColor\n profileImageUrl\n __typename\n }\n __typename\n }\n dateCreated\n dateUpdated\n __typename\n }\n}" })
             return "ok"
+        },
+
+        // ========== 新增：链接解析跳转 ==========
+        link: {
+            domains: [
+                'komiic.cc',
+                'komiic.com'
+            ],
+            linkToId: (url) => {
+                // 匹配 /comic/{数字}
+                let match = url.match(/\/comic\/(\d+)/);
+                return match ? match[1] : null;
+            }
         }
     }
 

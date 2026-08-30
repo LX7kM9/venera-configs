@@ -1,24 +1,22 @@
 class ComicWalker extends ComicSource {
   name = "カドコミ";
   key = "comic_walker";
-  version = "1.1.0";
+  version = "1.3.1";   // 增强 ID 提取，修复链接解析
   minAppVersion = "1.6.0";
   url =
     "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
 
   api_key = "ytBrdQ2ZYdRQguqEusVLxQVUgakNnVht";
-
-  latestVersion = "1.5.0";
-
+  latestVersion = "2.1.0";
   api_base = "https://mobileapp.comic-walker.com";
 
-  // 根级方法避免框架报错
-  onTagSuggestionSelected() {}
+  // 根级方法（避免框架报错）
+  onTagSuggestionSelected = () => {};
 
+  // ========== 请求头 ==========
   get headers() {
     const headers = {
       "X-API-Environment-Key": this.api_key,
-      // 改进 User-Agent 格式，更贴近真实应用
       "User-Agent": `BookWalkerApp/${this.latestVersion} (Android 13; en_US; Phone; com.bookwalker)`,
       "Host": "mobileapp.comic-walker.com",
       "Content-Type": "application/json",
@@ -31,6 +29,7 @@ class ComicWalker extends ComicSource {
     return headers;
   }
 
+  // ========== 刷新 Token ==========
   async refreshToken() {
     const res = await this.request(
       `${this.api_base}/v1/users`,
@@ -38,7 +37,6 @@ class ComicWalker extends ComicSource {
       "POST",
       {}
     );
-
     if (res && res.resources && res.resources.access_token) {
       this.saveData("token", res.resources.access_token);
       return res.resources.access_token;
@@ -46,6 +44,7 @@ class ComicWalker extends ComicSource {
     throw new Error("Failed to get access token");
   }
 
+  // ========== 统一请求方法 ==========
   async request(url, headers, method = "GET", data) {
     let response;
     try {
@@ -60,11 +59,9 @@ class ComicWalker extends ComicSource {
       throw e;
     }
 
-    // 处理非 2xx 或 204 状态码，不尝试解析 JSON
     if (response.status !== 200 && response.status !== 204) {
       throw new Error(`HTTP ${response.status}: ${response.body || "No body"}`);
     }
-
     if (response.status === 204) {
       return response;
     }
@@ -76,7 +73,6 @@ class ComicWalker extends ComicSource {
       throw new Error(`Invalid JSON response: ${response.body.substring(0, 100)}`);
     }
 
-    // 处理业务错误码
     if (
       json.code === "invalid_request_parameter" ||
       json.code === "free_daily_reward_quota_exceeded" ||
@@ -103,29 +99,77 @@ class ComicWalker extends ComicSource {
     return json;
   }
 
+  // ========== 初始化（获取应用版本） ==========
   async init() {
     const itunes_api = "https://itunes.apple.com/lookup?bundleId=jp.co.bookwalker.cwapp.ios&country=jp";
+    const fallbackVersion = "2.1.0";
 
     try {
-      const resp = await Network.get(itunes_api);
-      if (resp.status == 200) {
-        const data = JSON.parse(resp.body);
+      const resp = await fetch(itunes_api);
+      if (resp.ok) {
+        const data = await resp.json();
         if (data.results && data.results.length > 0) {
           this.latestVersion = data.results[0].version;
+          console.log(`[ComicWalker] 获取到最新版本: ${this.latestVersion}`);
+        } else {
+          throw new Error("No results in iTunes response");
         }
+      } else {
+        throw new Error(`HTTP ${resp.status}`);
       }
     } catch (e) {
-      console.warn("Failed to fetch latest version, using default:", this.latestVersion);
+      console.warn(`[ComicWalker] 获取版本失败，使用备用版本: ${fallbackVersion}`, e.message);
+      this.latestVersion = fallbackVersion;
     }
 
-    // 尝试刷新 token，失败不阻断初始化
     try {
       await this.refreshToken();
     } catch (e) {
-      console.warn("Failed to refresh token during init:", e.message);
+      console.warn("[ComicWalker] 刷新 token 失败:", e.message);
     }
   }
 
+  // ========== 辅助方法：获取详情页 HTML 并提取数字 ID ==========
+  _fetchDetailPage(id) {
+    const url = `https://comic-walker.com/detail/${id}`;
+    return Network.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+  }
+
+  // 增强 ID 提取，支持多种模式，优先提取 UUID 或数字 ID
+  _extractComicId(html) {
+    // 尝试多种模式提取 UUID 或数字 ID
+    const patterns = [
+      /"comic_id"\s*:\s*"([0-9a-f-]+)"/i,
+      /"id"\s*:\s*"([0-9a-f-]+)"/i,
+      /"comicId"\s*:\s*"([0-9a-f-]+)"/i,
+      /"comic_id":"([0-9a-f-]+)"/,
+      /"id":"([0-9a-f-]+)"/,
+      /data-comic-id="([0-9a-f-]+)"/i,
+      /comicId\s*=\s*['"]([0-9a-f-]+)['"]/i,
+      // 也尝试匹配纯数字 ID（如果有）
+      /"comic_id":"(\d+)"/,
+      /"id":(\d+)/
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match) {
+        const extracted = match[1];
+        // 验证提取的 ID 是否为有效格式（UUID 或数字）
+        if (/^[0-9a-f-]+$/.test(extracted) || /^\d+$/.test(extracted)) {
+          console.log(`[ComicWalker] _extractComicId 匹配到: ${extracted}`);
+          return extracted;
+        }
+      }
+    }
+    console.warn('[ComicWalker] _extractComicId 未匹配到任何 ID');
+    return null;
+  }
+
+  // ========== Explore ==========
   explore = [
     {
       title: "カドコミ",
@@ -185,6 +229,7 @@ class ComicWalker extends ComicSource {
     },
   ];
 
+  // ========== Search ==========
   search = {
     load: async (keyword, _, page) => {
       const res = await this.request(
@@ -218,12 +263,52 @@ class ComicWalker extends ComicSource {
     },
   };
 
+  // ========== Comic ==========
   comic = {
-    onTagSuggestionSelected() {},
+    onTagSuggestionSelected: () => {},
 
+    // ---------- 链接解析 ----------
+    link: {
+      domains: [
+        'comic-walker.com'
+      ],
+      linkToId: (url) => {
+        let match = url.match(/\/detail\/([^/?]+)/);
+        if (match) return match[1];
+        return null;
+      }
+    },
+
+    idMatch: "^[A-Za-z0-9_]+$",
+
+    // ---------- 加载详情（箭头函数，this 指向 ComicWalker 实例） ----------
     loadInfo: async (id) => {
+      let realId = id;
+
+      // 若 ID 为 KC_xxx 格式，尝试从网页提取数字 ID
+      if (/^KC_\d+_[A-Z]$/.test(id)) {
+        try {
+          const response = await this._fetchDetailPage(id);
+          if (response.status === 200) {
+            const html = response.body;
+            const extracted = this._extractComicId(html);
+            if (extracted) {
+              realId = extracted;
+              console.log(`[ComicWalker] 从详情页提取到数字 ID: ${realId}`);
+            } else {
+              console.warn(`[ComicWalker] 无法从页面提取数字 ID，将使用原 ID: ${id}`);
+            }
+          } else {
+            console.warn(`[ComicWalker] 获取详情页失败 (HTTP ${response.status})，将使用原 ID`);
+          }
+        } catch (e) {
+          console.warn(`[ComicWalker] 获取详情页异常: ${e.message}，将使用原 ID`);
+        }
+      }
+
+      // 使用 realId 请求 API
       const res = await this.request(
-        `${this.api_base}/v2/screens/comics/${id}`,
+        `${this.api_base}/v2/screens/comics/${realId}`,
         this.headers,
       );
       const detail = res.resources.detail;
@@ -232,7 +317,7 @@ class ComicWalker extends ComicSource {
       let episodes = { resources: [] };
       for (let offset = 0; offset < totalCount; offset += 100) {
         const chunk = await this.request(
-          `${this.api_base}/v1/comics/${id}/episodes?offset=${offset}&limit=100&sort=asc`,
+          `${this.api_base}/v1/comics/${realId}/episodes?offset=${offset}&limit=100&sort=asc`,
           this.headers,
         );
         episodes.resources.push(...(chunk.resources || []));
@@ -287,6 +372,7 @@ class ComicWalker extends ComicSource {
       });
     },
 
+    // ---------- 加载章节 ----------
     loadEp: async (comicId, epId) => {
       let detail = await this.request(
         `${this.api_base}/v1/episodes/${epId}`,
@@ -301,7 +387,6 @@ class ComicWalker extends ComicSource {
       ) {
         throw new Error("No available rental plans after filtering");
       }
-      console.log(plans);
       const freePlan = plans.find((plan) => plan.type === "free");
       if (!freePlan) {
         const plan = plans[randomInt(0, plans.length - 1)];
@@ -324,7 +409,11 @@ class ComicWalker extends ComicSource {
       };
     },
 
+    // ---------- 图片加载处理 ----------
     onImageLoad: (url) => {
+      if (!url || url.trim() === '') {
+        return { url: '', headers: {} };
+      }
       let drm_hash = null;
       let cleanUrl = url;
       const drmHashMatch = url.match(/[?&]drm_hash=([^&]+)/);
@@ -339,16 +428,13 @@ class ComicWalker extends ComicSource {
         if (p2) return p1;
         return "";
       }).replace(/[?&]$/, "");
-
       cleanUrl = cleanUrl.replace(/([?&])height=[^&]+(&)?/, (match, p1, p2) => {
         if (p2) return p1;
         return "";
       }).replace(/[?&]$/, "");
 
-      if (drm_hash.length < 2) {
-        throw new Error(
-          "drm_hash must be at least 2 characters long",
-        );
+      if (!drm_hash || drm_hash.length < 2) {
+        return { url: cleanUrl, headers: this.headers };
       }
       var version = drm_hash.slice(0, 2);
       if (version !== "01") {
@@ -386,6 +472,7 @@ class ComicWalker extends ComicSource {
       };
     },
 
+    // ---------- Tag 点击跳转 ----------
     onClickTag: (namespace, tag) => {
       if (
         namespace === "漫画" || namespace === "原作" ||

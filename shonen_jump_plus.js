@@ -1,7 +1,7 @@
 class ShonenJumpPlus extends ComicSource {
   name = "少年ジャンプ＋";
   key = "shonen_jump_plus";
-  version = "1.1.2"; // 升级源版本号
+  version = "1.1.4"; // 修复链接解析，增加网页抓取提取 seriesId
   minAppVersion = "1.2.1";
   url =
     "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
@@ -36,7 +36,6 @@ class ShonenJumpPlus extends ComicSource {
   // 初始化：获取最新版本号
   async init() {
     try {
-      // 使用 iTunes Lookup API
       const url = "https://itunes.apple.com/jp/lookup?id=875750302";
       const resp = await Network.get(url);
       if (resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
@@ -52,7 +51,6 @@ class ShonenJumpPlus extends ComicSource {
       throw new Error("无法从 iTunes 解析版本号");
     } catch (e) {
       console.warn("[ShonenJumpPlus] 获取版本失败，使用备用版本", e);
-      // 备用版本保持不变（已初始化）
     }
   }
 
@@ -182,6 +180,13 @@ class ShonenJumpPlus extends ComicSource {
 
   comic = {
     loadInfo: async (id) => {
+      // 如果传入的是 episode publisherId（带有 ep: 前缀），则先获取对应的 series ID
+      if (typeof id === 'string' && id.startsWith('ep:')) {
+        const episodeId = id.slice(3);
+        const seriesId = await this.getSeriesIdFromEpisode(episodeId);
+        id = seriesId;
+      }
+
       await this.ensureAuth();
       const seriesData = await this.fetchSeriesDetail(id);
       const episodes = await this.fetchEpisodes(id);
@@ -254,6 +259,22 @@ class ShonenJumpPlus extends ComicSource {
       }
       throw "Unsupported tag namespace: " + namespace;
     },
+
+    // ========== 链接解析跳转（支持系列和章节链接） ==========
+    link: {
+      domains: [
+        'shonenjumpplus.com',
+      ],
+      linkToId: (url) => {
+        // 尝试匹配系列链接（如 /app/series/100179）
+        let match = url.match(/\/app\/series\/(\d+)/);
+        if (match) return match[1];
+        // 尝试匹配章节链接（如 /app/episode/ew140363）
+        match = url.match(/\/app\/episode\/([^\/?#]+)/);
+        if (match) return 'ep:' + match[1];
+        return null;
+      }
+    }
   };
 
   // ---------- 辅助方法 ----------
@@ -287,10 +308,8 @@ class ShonenJumpPlus extends ComicSource {
         if (retry && this._retryCount < 3) {
           this._retryCount++;
           console.warn("[ShonenJumpPlus] 收到 410，尝试更新版本并重试");
-          await this.init(); // 重新获取版本
-          // 重新获取 token（因为可能失效）
+          await this.init();
           await this.fetchBearerToken();
-          // 重试请求（不再次重试，防止死循环）
           return this.graphqlRequest(operationName, variables, false);
         } else {
           throw new Error(`GraphQL 请求失败，状态码 410，版本可能需要手动更新`);
@@ -333,7 +352,6 @@ class ShonenJumpPlus extends ComicSource {
           this._retryCount++;
           console.warn("[ShonenJumpPlus] token 请求收到 410，尝试更新版本并重试");
           await this.init();
-          // 重新请求（不再重试）
           return this.fetchBearerToken(false);
         } else {
           throw new Error("获取 access_token 失败，状态码 410，版本过旧");
@@ -348,7 +366,7 @@ class ShonenJumpPlus extends ComicSource {
       this.bearerToken = access_token;
       this.userAccountId = user_account_id;
       this.tokenExpiry = Date.now() + 3600000;
-      this._retryCount = 0; // 重置重试计数
+      this._retryCount = 0;
     } catch (e) {
       console.error("[ShonenJumpPlus] fetchBearerToken 异常:", e);
       throw e;
@@ -449,9 +467,68 @@ class ShonenJumpPlus extends ComicSource {
     });
     this.addUserDeviceCalled = true;
   }
+
+  // ========== 新增：从 Episode 页面抓取 Series ID ==========
+  async _fetchEpisodePage(publisherId) {
+    const url = `https://shonenjumpplus.com/app/episode/${publisherId}`;
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    };
+    return Network.get(url, headers);
+  }
+
+  _extractSeriesIdFromHtml(html) {
+    // 尝试多种模式提取 series databaseId
+    const patterns = [
+      /"series":\{"databaseId":"(\d+)"/,
+      /"series":\{"id":"[^"]*","databaseId":"(\d+)"/,
+      /"databaseId":"(\d+)"/,
+      /data-series-id="(\d+)"/,
+      /seriesId:\s*['"](\d+)['"]/,
+      /"series":\{"__typename":"Series","id":"[^"]*","databaseId":"(\d+)"/
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match) {
+        console.log(`[ShonenJumpPlus] 从网页提取到 seriesId: ${match[1]}`);
+        return match[1];
+      }
+    }
+    console.warn('[ShonenJumpPlus] 无法从网页提取 seriesId');
+    return null;
+  }
+
+  async getSeriesIdFromEpisode(publisherId) {
+    // 首先尝试从网页抓取
+    try {
+      const response = await this._fetchEpisodePage(publisherId);
+      if (response.status === 200) {
+        const html = response.body;
+        const extracted = this._extractSeriesIdFromHtml(html);
+        if (extracted) {
+          return extracted;
+        }
+      }
+    } catch (e) {
+      console.warn(`[ShonenJumpPlus] 抓取章节页面失败: ${e.message}`);
+    }
+
+    // 网页抓取失败，尝试 GraphQL 查询（原方法，但已知会失败，保留作为备选）
+    try {
+      const response = await this.graphqlRequest("EpisodeSeriesId", { episodeID: publisherId });
+      const series = response?.data?.episode?.series;
+      if (series && series.databaseId) {
+        return series.databaseId;
+      }
+    } catch (e) {
+      console.warn(`[ShonenJumpPlus] GraphQL 查询系列ID失败: ${e.message}`);
+    }
+
+    throw new Error(`无法从章节 ${publisherId} 获取对应的系列ID`);
+  }
 }
 
-// GraphQL 查询（保持不变）
+// GraphQL 查询（保留原有，新增 EpisodeSeriesId 作为备选）
 const GraphQLQueries = {
   SearchResult: `query SearchResult($after: String, $keyword: String!) {
         search(after: $after, first: 50, keyword: $keyword, types: [SERIES,MAGAZINE_LABEL]) {
@@ -568,6 +645,14 @@ const GraphQLQueries = {
     dailyRankings {
       ranking {
         __typename ...DailyRanking
+      }
+    }
+  }`,
+  // 备选查询（可能因 publisherId 不匹配而失败）
+  EpisodeSeriesId: `query EpisodeSeriesId($episodeID: String!) {
+    episode(databaseId: $episodeID) {
+      series {
+        databaseId
       }
     }
   }`,
