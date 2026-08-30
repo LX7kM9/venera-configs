@@ -1,27 +1,7 @@
-/**
- * 腾讯动漫（正版） Venera 漫画源
- * 站点：m.ac.qq.com
- *
- * 开发日志：
- * - v1.0.3：适配腾讯动漫章节 plain 响应的动态 nonce 标记拆分和数字表达式变体；
- *   同时兼容无 nonce 的直接 Base64 响应，修复章节图片偶发“无效参数”。
- * - v1.0.2：修复详情页 meta[itemprop=image] 实为腾讯动漫通用分享图标的问题；
- *   改从首章节页实际元数据取得漫画竖版封面，并由 onThumbnailLoad 加载历史封面。
- * - v1.0.1：修复历史页可能传入完整章节 URL/组合 ID 的兼容问题；
- *   将还原后的 Base64 规范化并补齐 `=` Padding，避免不同章节在 Venera 原生转换层触发“无效参数”。
- * - v1.0.0：基于移动站真实页面和官方前端脚本实现。
- * - 首页推荐：section.mod-item / .comic-item。
- * - 搜索：GET /search/result?word={keyword}，结果为 #lst_searchResult .comic-item。
- * - 分类：GET /category/listAll/type/{type}/rank/{rank}?page={n}&pageSize=15&style=items。
- * - 章节：GET /chapter/index/id/{comicId}/cid/{cid}?style=plain；响应含混入字符的 Base64 JSON。
- *   真实前端通过 nonce 中的“数字+字母”指令逆序移除干扰字符后再 Base64 解码。
- * - 【重点】本源只返回响应中 chapter.canRead !== false 的图片；不会绕过腾讯动漫的正版付费与阅读权限。
- * - 【重点】每次改动必须重新验证首页、搜索、分类、详情、章节和图片六条链路。
- */
 class TencentComicOfficial extends ComicSource {
     name = "腾讯动漫（正版）"
     key = "qq_comic_official"
-    version = "1.0.3"
+    version = "1.0.4"   // 增加链接解析与复制链接
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/qq_comic_offcial.js"
 
@@ -380,14 +360,17 @@ class TencentComicOfficial extends ComicSource {
                     }
                 }
 
+                // 构造详情页链接（用于复制链接）
+                const detailUrl = this.baseUrl + "/comic/index/id/" + id;
+
                 return new ComicDetails({
                     title,
                     cover,
                     description,
                     tags,
                     chapters,
-                    // 缩略图用于详情预览；历史列表仍以 cover 作为唯一漫画封面。
-                    thumbnails: cover ? [cover] : []
+                    thumbnails: cover ? [cover] : [],
+                    url: detailUrl   // 右上角复制链接依赖此字段
                 });
             } catch (e) {
                 return new ComicDetails({ title: "加载失败", chapters: new Map() });
@@ -420,6 +403,18 @@ class TencentComicOfficial extends ComicSource {
             } catch (e) {
                 return { images: [] };
             }
-        }
+        },
+
+        // ========== 新增：链接解析跳转 ==========
+        link: {
+            domains: ["m.ac.qq.com"],
+            linkToId: (url) => {
+                // 匹配详情页 /comic/index/id/数字
+                const match = String(url || "").match(/\/comic\/index\/id\/(\d+)/i);
+                return match ? match[1] : null;
+            }
+        },
+
+        idMatch: "^\\d+$",   // 限定 ID 格式
     }
 }

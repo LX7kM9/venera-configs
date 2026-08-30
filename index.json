@@ -31,15 +31,15 @@
         "name": "腾讯动漫（正版）",
         "fileName": "qq_comic_official.js",
         "key": "qq_comic_official",
-        "version": "1.0.3",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.0.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "如漫画",
         "fileName": "rumanhua.js",
         "key": "rumanhua",
-        "version": "1.2.6",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.2.7",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "漫蛙吧",

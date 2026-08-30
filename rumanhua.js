@@ -1,7 +1,7 @@
 class RuManHua extends ComicSource {
     name = "如漫画"
     key = "rumanhua"
-    version = "1.2.6"
+    version = "1.2.7"   // 增加链接解析与复制链接
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
@@ -190,12 +190,17 @@ class RuManHua extends ComicSource {
                 }
 
                 doc.dispose();
+
+                // 构造详情页链接（用于复制链接）
+                const detailUrl = `http://www.rumanhua2.com/${cleanId}/`;
+
                 return new ComicDetails({
                     title: title,
                     cover: cover,
                     description: description,
                     tags: tags,
-                    chapters: chapters
+                    chapters: chapters,
+                    url: detailUrl   // 右上角复制链接依赖此字段
                 });
             } catch (e) {
                 return new ComicDetails({ title: "加载失败", chapters: new Map() });
@@ -347,6 +352,20 @@ class RuManHua extends ComicSource {
                 }
                 return p.replace(/\b\w+\b/g, (w) => d[w] || w);
             } catch (err) { return packed; }
-        }
+        },
+
+        // ========== 新增：链接解析跳转 ==========
+        link: {
+            domains: [
+                'www.rumanhua2.com'
+            ],
+            linkToId: (url) => {
+                // 匹配 http://www.rumanhua2.com/数字/ 格式
+                const match = String(url || "").match(/https?:\/\/www\.rumanhua2\.com\/([^/]+)\/?/);
+                return match ? match[1] : null;
+            }
+        },
+
+        idMatch: "^[A-Za-z0-9]+$",   // ID 为数字或字母组合
     }
 }
