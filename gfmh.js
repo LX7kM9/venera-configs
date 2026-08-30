@@ -1,24 +1,7 @@
-/**
- * 古风漫画（gfmh.app）Venera 漫画源
- *
- * v1.3.0：补全 ComicDetails 的 subtitle、subId、url、isFavorite 和 thumbnails，降低客户端阅读器/已读状态对可选空字段的兼容风险；保留 v1.2.0 的封面代理、搜索和 params 修复。
- *
- * 已验证：
- * - 首页 div.comic_box / li / a.pic / a.txt / .author
- * - 分类 .c_list .catagory-list > li / a.img.autoHeight / a.txt / span.info
- * - 分类分页 /category/.../page/N，页面文本可给出 maxPage
- * - 详情 .infocomic .infobox、.info p.tage、.chapterbox .listbox ul.list
- * - 当前阅读页 params 的 AES-CBC/JSON 解密，已从实时样本恢复 70 张图片
- * - 旧式阅读页 #manga-imgs img.lazy-read 的 src/data-src 直链兼容分支
- * - 搜索页 .u_list > li 独立结果结构
- * - cover1.baozimh.org 封面改用 s2.325784.xyz Base64 图片代理
- * - 已删除详情页的“漫画不存在或章节已被删除”错误边界
- */
-
 class Gfmh extends ComicSource {
   name = "古风漫画";
   key = "gfmh";
-  version = "1.3.0";
+  version = "1.3.1";   // 版本微升，确保复制链接可用
   minAppVersion = "1.6.0";
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/gfmh.js";
 
@@ -447,7 +430,7 @@ class Gfmh extends ComicSource {
           thumbnails: cover ? [cover] : [],
           recommend: [],
           updateTime: updateTime || "",
-          url: `${this.baseUrl}/${comicId}.html`,
+          url: `${this.baseUrl}/${comicId}.html`,   // 确保此字段存在，以支持右上角“复制链接”
         });
       } finally {
         document?.dispose();

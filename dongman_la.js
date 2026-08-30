@@ -1,18 +1,7 @@
-/**
- * 动漫啦（www.dongman.la）Venera 漫画源
- *
- * 真实取证结论：
- * 1. 首页、分类、搜索、详情和阅读页均为服务端 HTML。
- * 2. 列表卡片使用 .cy_list_mh > ul，图片使用 img[src]。
- * 3. 搜索表单为 /manhua/search/?key=关键词。
- * 4. 详情路由为 /manhua/detail/{comicId}/，章节路由为 /manhua/chapter/{comicId}/{chapterId}/。
- * 5. 阅读页图片为 img[src] 直链 JPEG，无 Base64、AES、XOR 或脚本加密。
- * 6. /all.html 为整话下拉阅读页，可一次解析完整章节图片。
- */
 class DongManLa extends ComicSource {
     name = "动漫啦";
     key = "dongman_la";
-    version = "1.0.1";
+    version = "1.0.2";   // 增加链接解析与复制链接
     minAppVersion = "1.0.0";
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dongman_la.js";
 
@@ -241,7 +230,16 @@ class DongManLa extends ComicSource {
                     chapters.set(chapterId, chapterTitle);
                 }
                 doc.dispose();
-                return new ComicDetails({ title, cover, description, tags, chapters });
+
+                // 返回时添加 url 字段，使详情页菜单出现“复制链接”
+                return new ComicDetails({
+                    title,
+                    cover,
+                    description,
+                    tags,
+                    chapters,
+                    url: this.baseUrl + "/manhua/detail/" + encodeURIComponent(String(id)) + "/"
+                });
             } catch (e) {
                 return new ComicDetails({ title: "加载失败", chapters: new Map() });
             }
@@ -272,7 +270,17 @@ class DongManLa extends ComicSource {
         },
 
         onImageLoad: (url) => ({ headers: this.defaultHeaders }),
-        onThumbnailLoad: (url) => ({ headers: this.defaultHeaders })
+        onThumbnailLoad: (url) => ({ headers: this.defaultHeaders }),
+
+        // ========== 新增：链接解析与复制链接支持 ==========
+        link: {
+            domains: ['www.dongman.la', 'dongman.la'],
+            linkToId: (url) => {
+                const match = url.match(/\/manhua\/detail\/(\d+)\/?/);
+                return match ? match[1] : null;
+            },
+            idToLink: (id) => this.baseUrl + "/manhua/detail/" + encodeURIComponent(String(id)) + "/",
+        }
     };
 
     extractImages(body) {

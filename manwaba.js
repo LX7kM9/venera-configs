@@ -2,8 +2,8 @@
 class ManWaBa extends ComicSource {
   name = "漫蛙吧";
   key = "manwaba";
-  version = "1.1.3";
-  minAppVersion = "1.6.0"; // 提升最低版本要求以支持 AES 解密接口
+  version = "1.1.4"; // 增加链接解析与复制链接
+  minAppVersion = "1.6.0";
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/manwaba.js";
   api = "https://manwali.cc/api";
 
@@ -191,6 +191,9 @@ class ManWaBa extends ComicSource {
       
       const comicObj = this.parseComic(data);
 
+      // 构造详情页链接（用于复制链接）
+      const detailUrl = `https://manwali.cc/comic/${data.id}`;
+
       return new ComicDetails({
         title: (data.title || "未知").toString(),
         subTitle: (data.author || "").toString(),
@@ -204,6 +207,8 @@ class ManWaBa extends ComicSource {
         updateTime: data.editTime ? new Date(data.editTime * 1000).toLocaleDateString() : "",
         sourceKey: this.key,
         comic: comicObj,
+        url: detailUrl,   // 右上角复制链接依赖此字段
+        subId: (data.id || "").toString(),
       });
     },
     loadEp: async (comicId, epId) => {
@@ -240,6 +245,17 @@ class ManWaBa extends ComicSource {
      * 漫蛙图片统一采用 AES-CBC；同一处理既用于章节图片，也用于封面和历史缩略图。
      */
     onImageLoad: (url, comicId, epId) => this.imageLoadConfig(url),
-    onThumbnailLoad: (url) => this.imageLoadConfig(url)
+    onThumbnailLoad: (url) => this.imageLoadConfig(url),
+
+    // ========== 新增：链接解析跳转 ==========
+    link: {
+      domains: ["manwali.cc", "www.manwali.cc"],
+      linkToId: (url) => {
+        const match = url.match(/\/comic\/(\d+)/);
+        return match ? match[1] : null;
+      }
+    },
+
+    idMatch: "^\\d+$",
   };
 }

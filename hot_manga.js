@@ -1,11 +1,11 @@
 class HotManga extends ComicSource {
   name = "热辣漫画";
   key = "hot_manga";
-  version = "2.1.9";
+  version = "2.2.0";   // 区分网页与手机网页显示
   minAppVersion = "1.6.0";
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/hot_manga.js";
 
-  // ========== 预置 API 节点列表 ==========
+  // ========== 预置 API 节点列表（含 m. 网页节点） ==========
   static apiNodes = [
     "mapi.fgjfghkkcenter.club",
     "mapi.fgjfghkk.club",
@@ -15,10 +15,13 @@ class HotManga extends ComicSource {
     "mapi.hotmangasf.com",
     "api.2024manga.com",
     "www.2024manga.com",
+    "m.2024manga.com",
     "api.manga2025.com",
     "www.manga2025.com",
+    "m.manga2025.com",
     "api.manga2026.xyz",
-    "www.manga2026.xyz"   // 新增网页节点
+    "www.manga2026.xyz",
+    "m.manga2026.xyz"
   ];
 
   // ========== 节流 ==========
@@ -116,7 +119,7 @@ class HotManga extends ComicSource {
     return this._headersForToken(token);
   }
 
-  // ========== 附属账号存储（不依赖设置项） ==========
+  // ========== 附属账号存储 ==========
   _getSubAccounts() {
     let data = this.loadData('sub_accounts');
     if (data) {
@@ -600,10 +603,14 @@ class HotManga extends ComicSource {
       let description = comicData.brief;
       let chapters = await getChapters(id, data.groups);
       let status = comicData.status.display;
+      // 构造网页链接
+      let webDomain = this.link?.domains?.[0] || 'www.2024manga.com';
+      let url = `https://${webDomain}/v2h5/details/comic/${id}`;
       return {
         title, cover, description,
         tags: { "作者": authors, "更新": [updateTime], "标签": tags, "状态": [status] },
-        chapters, isFavorite: results[1], subId: comicData.uuid
+        chapters, isFavorite: results[1], subId: comicData.uuid,
+        url: url
       };
     },
 
@@ -650,7 +657,7 @@ class HotManga extends ComicSource {
       throw "未支持此类Tag检索";
     },
 
-    // ========== 链接解析跳转（支持 www. 和 m.） ==========
+    // ========== 链接解析跳转 ==========
     link: {
       domains: [
         'www.2024manga.com',
@@ -661,7 +668,6 @@ class HotManga extends ComicSource {
         'm.manga2026.xyz'
       ],
       linkToId: (url) => {
-        // 匹配 /v2h5/details/comic/{path_word}
         let match = url.match(/\/v2h5\/details\/comic\/([^\/?#]+)/);
         return match ? match[1] : null;
       }
@@ -728,9 +734,11 @@ class HotManga extends ComicSource {
       options: (() => {
         let opts = [];
         for (let node of HotManga.apiNodes) {
-          // 同时识别 www. 和 m. 开头的节点为网页节点
-          let isWeb = node.startsWith("www.") || node.startsWith("m.");
-          let display = node.replace(/^[^.]*\./, '') + (isWeb ? "（网页）" : "（api）");
+          let suffix = '';
+          if (node.startsWith("www.")) suffix = '（网页）';
+          else if (node.startsWith("m.")) suffix = '（手机网页）';
+          else suffix = '（api）';
+          let display = node.replace(/^[^.]*\./, '') + suffix;
           opts.push({ value: node, text: display });
         }
         opts.push({ value: 'custom', text: '自定义 (使用下方API地址)' });

@@ -8,7 +8,7 @@ class Baihehui extends ComicSource {
     // unique id of the source
     key = "baihehui"
 
-    version = "1.0.0"
+    version = "1.0.1"   // 增加链接解析与复制链接支持
 
     minAppVersion = "1.4.0"
 
@@ -517,8 +517,9 @@ explore = [
             // 提取漫画标题
             let title = document.querySelector("h3.col-md-12").text.trim();
 
-            // 提取封面图片
-            let cover = "https://www.yamibo.com/coverm/000/000/" + id + ".jpg";
+            // 提取封面图片 - 使用补零的 id
+            let paddedId = id.padStart(3, '0');
+            let cover = `https://www.yamibo.com/coverm/000/000/${paddedId}.jpg`;
 
             // 提取作者信息
             let author = "";
@@ -563,7 +564,8 @@ explore = [
                     "更新": [updateTime],
                     "标签": tags
                 },
-                chapters: chapters
+                chapters: chapters,
+                url: `${this.baseUrl}/manga/${id}`   // 添加漫画详情页链接，用于“复制链接”
             };
 
         },
@@ -665,6 +667,16 @@ explore = [
         images: images, // 所有页面的图片 URL
         maxPage: maxPage
     };
+        },
+
+        // ========== 新增：链接解析与复制链接支持 ==========
+        link: {
+            domains: ['www.yamibo.com', 'yamibo.com'],
+            linkToId: (url) => {
+                const match = url.match(/\/manga\/(\d+)/);
+                return match ? match[1] : null;
+            },
+            idToLink: (id) => `${this.baseUrl}/manga/${id}`,
         },
 
         // enable tags translate

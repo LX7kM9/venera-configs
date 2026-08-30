@@ -1,7 +1,7 @@
 class Komiic extends ComicSource {
     name = "Komiic"
     key = "Komiic"
-    version = "1.8.2"      // 增加链接解析
+    version = "1.8.3"      // 增加详情页 url，支持复制链接
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/Komiic.js"
 
@@ -455,6 +455,10 @@ class Komiic extends ComicSource {
 
             let info = res.comics.pop()
 
+            // 构造详情页链接（用于复制链接）
+            const base = this._apiBase(); // 如 https://komiic.cc 或 https://komiic.com
+            const url = `${base}/comic/${id}`;
+
             return {
                 title: info.title,
                 cover: info.cover,
@@ -462,7 +466,8 @@ class Komiic extends ComicSource {
                 chapters: chapMap,
                 recommend: res.comics,
                 updateTime: info.updateTime,
-                isFavorite: info.isFavorite
+                isFavorite: info.isFavorite,
+                url: url   // 添加此字段，使右上角菜单出现“复制链接”
             }
         },
 
@@ -556,7 +561,7 @@ class Komiic extends ComicSource {
             return "ok"
         },
 
-        // ========== 新增：链接解析跳转 ==========
+        // ========== 链接解析跳转 ==========
         link: {
             domains: [
                 'komiic.cc',

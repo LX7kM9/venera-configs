@@ -3,29 +3,29 @@
         "name": "百合会",
         "fileName": "baihehui.js",
         "key": "baihehui",
-        "version": "1.0.0",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.0.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "香蕉漫画",
         "fileName": "banana.js",
         "key": "banana",
-        "version": "1.0.3",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.0.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "动漫啦",
         "fileName": "dongman_la.js",
         "key": "dongman_la",
-        "version": "1.0.1",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "古风漫画",
         "fileName": "gfmh.js",
         "key": "gfmh",
-        "version": "1.3.0",
-        "description": "不清楚会不会彻底失效，尽力而为"
+        "version": "1.3.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "腾讯动漫（正版）",
@@ -45,8 +45,8 @@
         "name": "漫蛙吧",
         "fileName": "manwaba.js",
         "key": "manwaba",
-        "version": "1.1.3",
-        "description":  "不清楚会不会彻底失效，尽力而为"
+        "version": "1.1.4",
+        "description":  "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "zero搬运网",
@@ -73,29 +73,29 @@
         "name": "拷贝漫画",
         "fileName": "copy_manga.js",
         "key": "copy_manga",
-        "version": "2.0.7",
-        "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，支持链接解析跳转"
+        "version": "2.0.8",
+        "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "热辣漫画",
         "fileName": "hot_manga.js",
         "key": "hot_manga",
-        "version": "2.1.9",
-        "description":  "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，支持链接解析跳转"
+        "version": "2.2.0",
+        "description":  "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "Komiic",
         "fileName": "komiic.js",
         "key": "Komiic",
-        "version": "1.8.2",
-        "description": "多账号登录优化（仅支持主账号收藏夹），双种网络收藏夹支持（喜爱+书柜），支持自填写api和预置api，优化功能触发后的反馈，支持链接解析跳转"
+        "version": "1.8.3",
+        "description": "多账号登录优化（仅支持主账号收藏夹），双种网络收藏夹支持（喜爱+书柜），支持自填写api和预置api，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "Pixiv",
         "fileName": "pixiv.js",
         "key": "pixiv",
         "version": "1.5.0",
-        "description":  "丰富的登录方式，几乎全部功能移植（token登录，屏蔽r18、r18g、ai），支持链接解析跳转，目前无法攻破多账号问题和直连问题"
+        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，目前无法攻破多账号问题和直连问题"
     },
     {
         "name": "少年ジャンプ＋",

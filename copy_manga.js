@@ -4,7 +4,7 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "2.0.7"   // 增加链接跳转支持
+    version = "2.0.8"   // 增加详情页 url，支持复制链接
 
     minAppVersion = "1.6.0"
 
@@ -168,7 +168,6 @@ class CopyManga extends ComicSource {
     _setSubAccounts(arr) {
         let json = JSON.stringify(arr);
         this.saveData('sub_accounts', json);
-        // 同步到 setting 以确保框架能读取到（避免空指针）
         if (typeof this.saveSetting === 'function') {
             this.saveSetting('sub_accounts', json);
         }
@@ -185,7 +184,6 @@ class CopyManga extends ComicSource {
             this.saveData("account_token_0", oldToken);
             this.deleteData("token");
         }
-        // 迁移旧 setting 中的 sub_accounts 到 data
         let oldSetting = this.loadSetting('sub_accounts');
         if (oldSetting) {
             try {
@@ -195,11 +193,9 @@ class CopyManga extends ComicSource {
                 }
             } catch(e) {}
         }
-        // 确保 data 中至少存在空数组
         if (!this.loadData('sub_accounts')) {
             this.saveData('sub_accounts', '[]');
         }
-        // 同步到 setting（如果 saveSetting 可用且 setting 中无值，则写入空数组）
         if (typeof this.saveSetting === 'function' && !this.loadSetting('sub_accounts')) {
             this.saveSetting('sub_accounts', '[]');
         }
@@ -652,10 +648,14 @@ class CopyManga extends ComicSource {
             let description = comicData.brief;
             let chapters = await getChapters(id, data.groups);
             let status = comicData.status.display;
+            // 构造详情页链接（用于复制链接）
+            let webDomain = this.link?.domains?.[0] || 'www.2025copy.com';
+            let url = `https://${webDomain}/h5/details/comic/${id}`;
             return {
                 title, cover, description,
                 tags: { "作者": authors, "更新": [updateTime], "标签": tags, "状态": [status] },
-                chapters, isFavorite: results[1], subId: comicData.uuid
+                chapters, isFavorite: results[1], subId: comicData.uuid,
+                url: url
             }
         },
         loadEp: async (comicId, epId) => {
@@ -753,7 +753,7 @@ class CopyManga extends ComicSource {
             throw "未支持此类Tag检索";
         },
 
-        // ========== 新增链接跳转 ==========
+        // ========== 链接解析 ==========
         link: {
             domains: [
                 'www.2025copy.com',
@@ -767,26 +767,20 @@ class CopyManga extends ComicSource {
                 'www.copy2000.site',
                 'www.copy3000.com',
                 'www.copy4000.com',
-                // 如有其他 www 镜像，可在此补充
             ],
             linkToId: (url) => {
-                // 匹配 /h5/details/comic/ 或 /details/comic/ 后面的 path_word
                 let match = url.match(/\/h5\/details\/comic\/([^/?]+)/);
                 if (match) return match[1];
-                
-                // 兼容可能存在的其他路径格式
                 match = url.match(/\/details\/comic\/([^/?]+)/);
                 if (match) return match[1];
-                
                 return null;
             }
         },
 
-        // 修改 idMatch 以支持 path_word 格式（字母、数字、下划线、连字符等）
         idMatch: "^[A-Za-z0-9_-]+$",
     }
 
-    // ========== 设置项（无 sub_accounts） ==========
+    // ========== 设置项 ==========
     settings = {
         help: {
             title: "使用帮助",
@@ -1052,7 +1046,7 @@ class CopyManga extends ComicSource {
             }
         },
 
-        // ---------- 登录所有附属账号（含正在登录提示） ----------
+        // ---------- 登录所有附属账号 ----------
         login_sub_accounts: {
             title: "登录附属账号",
             type: "callback",

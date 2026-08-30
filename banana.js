@@ -1,20 +1,7 @@
-/**
- * 香蕉漫画（manhuauo.com）Venera 漫画源
- *
- * 更新日志：
- * - v1.0.3：补充真实开发证据、解密调查结论与验证规范。
- *   已实测：首页/分类使用 .mg-vod-item，搜索使用 .mg-search-item；
- *   分类分页为 ?page={n}；章节图片来自 player_aaaa.url，以 ||| 分隔。
- *   当前实测章节未发现 AES/XOR/Base64 图片加密，禁止无证据加入解密逻辑。
- *   【重点】每次更新必须验证：首页、搜索、分类、详情、章节与图片六条链路。
- * - v1.0.2：统一首页推荐页与分类页的显示名称为“香蕉漫画”。
- *   内部 key 保持 manhuauo_banana_v2 不变，避免影响已导入源的设置和数据。
- * - v1.0.1：修复搜索、分类分页、详情章节与阅读页图片解析。
- */
 class XiangJiaoManHua extends ComicSource {
     name = "香蕉漫画"
     key = "banana"
-    version = "1.0.3"
+    version = "1.0.4"   // 增加链接解析与复制链接
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/banana.js"
 
@@ -223,7 +210,16 @@ class XiangJiaoManHua extends ComicSource {
                     if (href) chapters.set(href, el.text.trim());
                 }
                 doc.dispose();
-                return new ComicDetails({ title, cover, description, tags, chapters });
+
+                // 返回时添加 url 字段，使详情页菜单出现“复制链接”
+                return new ComicDetails({
+                    title,
+                    cover,
+                    description,
+                    tags,
+                    chapters,
+                    url: this.baseUrl + "/comic/" + id + ".html"
+                });
             } catch (e) {
                 return new ComicDetails({ title: "加载失败", chapters: new Map() });
             }
@@ -263,6 +259,16 @@ class XiangJiaoManHua extends ComicSource {
             } catch (e) {
                 return { images: [] };
             }
+        },
+
+        // ========== 新增：链接解析与复制链接支持 ==========
+        link: {
+            domains: ['www.manhuauo.com', 'manhuauo.com'],
+            linkToId: (url) => {
+                const match = url.match(/\/comic\/(\d+)\.html/);
+                return match ? match[1] : null;
+            },
+            idToLink: (id) => this.baseUrl + "/comic/" + id + ".html",
         }
     }
 }
