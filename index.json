@@ -52,8 +52,8 @@
         "name": "zero搬运网",
         "fileName": "zero.js",
         "key": "zerobyw",
-        "version": "1.0.0",
-        "description":  "非个人自制，更新需点击插件卡片上的更新"
+        "version": "1.0.5",
+        "description":  "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "MangaDex",
