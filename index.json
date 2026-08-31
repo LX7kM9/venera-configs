@@ -49,11 +49,60 @@
         "description":  "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "飞翔漫画",
+        "fileName": "ffppt.js",
+        "key": "ffppt",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "来漫画",
+        "fileName": "laimanhua.js",
+        "key": "laimanhua_split",
+        "version": "1.2.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫网",
+        "fileName": "manwang.js",
+        "key": "manwang",
+        "version": "1.2.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "MOJOIN",
+        "fileName": "mojoin.js",
+        "key": "mojoin",
+        "version": "1.0.8",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Rawkuma",
+        "fileName": "rawkuma.js",
+        "key": "rawkuma",
+        "version": "1.1.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "图库漫画",
+        "fileName": "tuku_cc.js",
+        "key": "tuku_cc",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "瓜子漫画",
+        "fileName": "guazi_manhua.js",
+        "key": "guazimanhua",
+        "version": "1.0.4",
+        "description": "非个人自制"
+    },
+    {
         "name": "zero搬运网",
         "fileName": "zero.js",
         "key": "zerobyw",
-        "version": "1.0.5",
-        "description":  "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.2.0",
+        "description":  "增加获取最新链接，增加分类页金额发现页的翻页，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "MangaDex",
@@ -73,7 +122,7 @@
         "name": "拷贝漫画",
         "fileName": "copy_manga.js",
         "key": "copy_manga",
-        "version": "2.0.8",
+        "version": "2.3.0",
         "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -101,7 +150,7 @@
         "name": "少年ジャンプ＋",
         "fileName": "shonen_jump_plus.js",
         "key": "shonen_jump_plus",
-        "version": "1.2.2",
+        "version": "1.2.1",
         "description": "经ai修复后功能可用，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {

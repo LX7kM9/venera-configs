@@ -1,16 +1,12 @@
 class CopyManga extends ComicSource {
 
     name = "拷贝漫画"
-
     key = "copy_manga"
-
-    version = "2.0.8"   // 增加详情页 url，支持复制链接
-
+    version = "2.3.0"   // 整合风控增强与指纹管理
     minAppVersion = "1.6.0"
-
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js"
 
-    // ========== 节流 ==========
+    // ========== 高级节流（已有，维持原样） ==========
     async throttle() {
         let lastReq = this.loadData("_last_req_time") || 0;
         let now = Date.now();
@@ -23,9 +19,9 @@ class CopyManga extends ComicSource {
         this.saveData("_last_req_time", Date.now().toString());
     }
 
-    // ========== Request ID ==========
+    // ========== Request ID（添加 region 判断） ==========
     async getReqID() {
-        if (this.copyRegion === "0") return "";
+        if (this.copyRegion === "0") return "";                // 新增：region=0 时跳过广告请求
         const reqIdUrl = "https://marketing.aiacgn.com/api/v2/adopr/query3/?format=json&ident=200100001";
         let reqId = "";
         try {
@@ -39,7 +35,7 @@ class CopyManga extends ComicSource {
         return reqId;
     }
 
-    // ========== Headers ==========
+    // ========== Headers（添加虚拟IP支持） ==========
     _headersForToken(token) {
         let secret = "M2FmMDg1OTAzMTEwMzJlZmUwNjYwNTUwYTA1NjNhNTM=";
         let now = new Date(Date.now());
@@ -57,7 +53,7 @@ class CopyManga extends ComicSource {
             "sha256"
         );
 
-        return {
+        let h = {
             "User-Agent": "COPY/3.0.9",
             "source": "copyApp",
             "deviceinfo": this.deviceinfo,
@@ -74,6 +70,16 @@ class CopyManga extends ComicSource {
             "x-auth-timestamp": ts,
             "x-auth-signature": sig,
         };
+
+        // ===== 虚拟IP轮换（实验性） =====
+        if (this.loadSetting('enable_virtual_ip') === "1") {
+            const vip = this.virtualIp;
+            if (vip) {
+                h["X-Forwarded-For"] = vip;
+                h["X-Real-IP"] = vip;
+            }
+        }
+        return h;
     }
 
     get headers() {
@@ -91,18 +97,108 @@ class CopyManga extends ComicSource {
     static defaultApiUrl = 'api.copy2000.online'
     static searchApi = "/api/kb/web/searchb/comics"
 
-    // ========== 设备指纹池 ==========
+    // ========== 真实设备指纹池（扩充至12组） ==========
     static realDevicePool = [
         { deviceinfo: "3371150V-9327", device: "EB0O.675141.548" },
         { deviceinfo: "4482161V-8412", device: "SM-S9180.827361.012" },
         { deviceinfo: "5593272V-7523", device: "23127PN0CC.918234.331" },
-        { deviceinfo: "6604383V-6634", device: "V2309A.547182.194" }
+        { deviceinfo: "6604383V-6634", device: "V2309A.547182.194" },
+        { deviceinfo: "7712265V-3218", device: "SM-S9110.332418.905" },
+        { deviceinfo: "8823374V-2564", device: "2201123C.681220.114" },
+        { deviceinfo: "9934483V-7412", device: "LIO-AL00.419362.207" },
+        { deviceinfo: "1045592V-1856", device: "PHK110.755014.426" },
+        { deviceinfo: "2156601V-6639", device: "V2183A.890227.538" },
+        { deviceinfo: "3267710V-9475", device: "GX7A4.204516.772" },
+        { deviceinfo: "4378829V-3027", device: "SM-A5460.135802.649" },
+        { deviceinfo: "5489938V-8145", device: "PJA110.462917.381" }
     ];
 
+    // ========== 真实公网IP池（海外/大陆） ==========
+    static virtualIpPoolOverseas = [
+        "1.1.1.1", "1.0.0.1", "1.1.1.2",
+        "8.8.8.8", "8.8.4.4", "8.26.56.26",
+        "9.9.9.9", "76.76.2.0",
+        "208.67.222.222", "208.67.220.220",
+        "77.88.8.8", "64.6.64.6", "91.239.100.100",
+        "185.228.168.9", "146.112.61.2", "84.200.69.80"
+    ];
+    static virtualIpPoolMainland = [
+        "114.114.114.114", "114.114.115.115",
+        "223.5.5.5", "223.6.6.6",
+        "180.76.76.76", "123.125.81.6",
+        "119.29.29.29", "1.2.4.8", "210.2.4.8", "101.226.4.6"
+    ];
+
+    // ========== 设备指纹管理（自动重置、风控记录、智能选取） ==========
+    /**
+     * 重置设备指纹：删除本地存储，生成新指纹，并记录旧指纹用于排除
+     */
+    autoResetDeviceFingerprint() {
+        const oldInfo = this.loadData("_deviceinfo");
+        const oldDev = this.loadData("_device");
+        this.deleteData("_deviceinfo");
+        this.deleteData("_device");
+        this.deleteData("_pseudoid");
+        this.deleteData("_virtual_ip");
+        if (oldInfo) this.saveData("_exclude_deviceinfo", oldInfo);
+        if (oldDev) this.saveData("_exclude_device", oldDev);
+        this.refreshAppApi();
+    }
+
+    /**
+     * 获取本会话中被风控（210）的设备指纹列表
+     */
+    loadBlockedDevices() {
+        let raw = this.loadData("_blocked_deviceinfos");
+        if (Array.isArray(raw)) return raw;
+        try {
+            return JSON.parse(raw || "[]");
+        } catch (e) {
+            return [];
+        }
+    }
+
+    saveBlockedDevices(list) {
+        this.saveData("_blocked_deviceinfos", JSON.stringify(list.slice(-30)));
+    }
+
+    /**
+     * 将当前设备标记为已被风控，加入黑名单
+     */
+    markDeviceBlocked() {
+        const cur = this.loadData("_deviceinfo");
+        if (!cur) return;
+        const list = this.loadBlockedDevices();
+        if (!list.includes(cur)) {
+            list.push(cur);
+            this.saveBlockedDevices(list);
+        }
+    }
+
+    /**
+     * 从指纹池中选取一个未被排除且未被风控的设备，全部排除时降级回退
+     */
+    pickDeviceItem() {
+        const excludeInfo = this.loadData("_exclude_deviceinfo");
+        const blocked = this.loadBlockedDevices();
+        let pool = CopyManga.realDevicePool;
+        let candidates = pool.filter(item =>
+            item.deviceinfo !== excludeInfo && !blocked.includes(item.deviceinfo)
+        );
+        if (candidates.length === 0) {
+            candidates = pool.filter(item => item.deviceinfo !== excludeInfo);
+        }
+        if (candidates.length === 0) {
+            candidates = pool;
+        }
+        return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+
+    // ========== 设备指纹 getter（使用智能选取） ==========
     get deviceinfo() {
         let info = this.loadData("_deviceinfo");
         if (!info) {
-            let item = CopyManga.realDevicePool[Math.floor(Math.random() * CopyManga.realDevicePool.length)];
+            let item = this.pickDeviceItem();
             info = item.deviceinfo;
             this.saveData("_deviceinfo", info);
             this.saveData("_device", item.device);
@@ -113,12 +209,28 @@ class CopyManga extends ComicSource {
     get device() {
         let dev = this.loadData("_device");
         if (!dev) {
-            let item = CopyManga.realDevicePool[Math.floor(Math.random() * CopyManga.realDevicePool.length)];
+            let item = this.pickDeviceItem();
             dev = item.device;
             this.saveData("_device", dev);
             this.saveData("_deviceinfo", item.deviceinfo);
         }
         return dev;
+    }
+
+    // ========== 虚拟IP getter ==========
+    get virtualIp() {
+        if (this.loadSetting('enable_virtual_ip') !== "1") {
+            return "";
+        }
+        let ip = this.loadData("_virtual_ip");
+        if (!ip) {
+            const pool = this.copyRegion === "1"
+                ? CopyManga.virtualIpPoolMainland
+                : CopyManga.virtualIpPoolOverseas;
+            ip = pool[Math.floor(Math.random() * pool.length)];
+            this.saveData("_virtual_ip", ip);
+        }
+        return ip;
     }
 
     get pseudoid() {
@@ -232,20 +344,36 @@ class CopyManga extends ComicSource {
         registerWebsite: null
     }
 
-    // ========== 探索页 ==========
+    // ========== 探索页（加入软风控重试） ==========
     explore = [
         {
             title: "拷贝漫画",
             type: "singlePageWithMultiPart",
             load: async () => {
-                await this.throttle();
-                let dataStr = await Network.get(
-                    `${this.apiUrl}/api/v3/h5/homeIndex`,
-                    this.headers
-                )
-                if (dataStr.status === 210) throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
-                if (dataStr.status !== 200) throw `Invalid status code: ${dataStr.status}`
-                let data = JSON.parse(dataStr.body)
+                let data = null;
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    await this.throttle();
+                    let dataStr = await Network.get(
+                        `${this.apiUrl}/api/v3/h5/homeIndex`,
+                        this.headers
+                    )
+                    if (dataStr.status === 210) {
+                        throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
+                    }
+                    if (dataStr.status !== 200) {
+                        throw `Invalid status code: ${dataStr.status}`
+                    }
+                    data = JSON.parse(dataStr.body)
+                    if (data && data.results) break;
+                    // 软风控：返回空 results
+                    this.autoResetDeviceFingerprint();
+                    let waitTime = 10000;
+                    console.log(`首页返回空数据(软风控)，等待 ${waitTime / 1000}s 后重试`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                }
+                if (!data || !data.results) {
+                    throw "首页返回空数据(软风控)，请稍后重试或点击设置里的“重置设备指纹池”";
+                }
                 function parseComic(comic) {
                     if (comic["comic"] !== null && comic["comic"] !== undefined) comic = comic["comic"]
                     let tags = []
@@ -304,9 +432,17 @@ class CopyManga extends ComicSource {
             }
             await this.throttle();
             let res = await Network.get(category_url, this.headers)
-            if (res.status === 210) throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
-            if (res.status !== 200) throw `Invalid status code: ${res.status}`
+            if (res.status === 210) {
+                throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
+            }
+            if (res.status !== 200) {
+                throw `Invalid status code: ${res.status}`
+            }
             let data = JSON.parse(res.body)
+            // 软风控检测
+            if (!data || !data.results || !Array.isArray(data.results.list)) {
+                throw "分类列表返回空数据(软风控)，请稍后重试";
+            }
             function parseComic(comic) {
                 let sort = null, popular = 0, rise_sort = 0;
                 if (comic["sort"] !== null && comic["sort"] !== undefined) { sort = comic["sort"]; rise_sort = comic["rise_sort"]; popular = comic["popular"] }
@@ -334,7 +470,7 @@ class CopyManga extends ComicSource {
         ]
     }
 
-    // ========== 搜索 ==========
+    // ========== 搜索（加入软风控检测） ==========
     search = {
         load: async (keyword, options, page) => {
             let author;
@@ -351,9 +487,16 @@ class CopyManga extends ComicSource {
                 let search_url = this.loadSetting('search_api') === "webAPI" ? `${this.apiUrl}${CopyManga.searchApi}` : `${this.apiUrl}/api/v3/search/comic`
                 res = await Network.get(`${search_url}?limit=30&offset=${(page - 1) * 30}&q=${keyword}&q_type=${q_type}`, this.headers)
             }
-            if (res.status === 210) throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
-            if (res.status !== 200) throw `Invalid status code: ${res.status}`
+            if (res.status === 210) {
+                throw "210：访问过于频繁，已被官方风控限制，请等待1小时、切换海外线路或尝试点击设置里的“重置设备指纹池”";
+            }
+            if (res.status !== 200) {
+                throw `Invalid status code: ${res.status}`
+            }
             let data = JSON.parse(res.body)
+            if (!data || !data.results || !Array.isArray(data.results.list)) {
+                throw "搜索返回空数据(软风控)，请稍后重试";
+            }
             function parseComic(comic) {
                 if (comic["comic"] !== null && comic["comic"] !== undefined) comic = comic["comic"]
                 let tags = []
@@ -367,7 +510,7 @@ class CopyManga extends ComicSource {
         optionList: [{ type: "select", options: ["-全部", "name-名称", "author-作者", "local-汉化组"], label: "搜索选项" }]
     }
 
-    // ========== 收藏（完整多账号） ==========
+    // ========== 收藏（完整多账号，保持不变） ==========
     favorites = {
         multiFolder: true,
         singleFolderForSingleComic: true,
@@ -577,7 +720,7 @@ class CopyManga extends ComicSource {
         return { comics: uniqueItems.map(parseComic), maxPage: maxPage };
     }
 
-    // ========== 漫画详情 ==========
+    // ========== 漫画详情（带重试循环，处理硬/软风控） ==========
     comic = {
         loadInfo: async (id) => {
             let getChapters = async (id, groups) => {
@@ -624,19 +767,49 @@ class CopyManga extends ComicSource {
                 }
             }
 
+            // 获取收藏状态（多账号检查）
             let getFavoriteStatus = async (id) => {
                 let favAccounts = await this._checkFavoriteAccounts(id);
                 return favAccounts.length > 0;
             }
-            let reqId = await this.getReqID();
-            await this.throttle();
-            let results = await Promise.all([
-                Network.get(`${this.apiUrl}/api/v3/comic2/${id}?in_mainland=true&request_id=${reqId}&platform=3`, this.headers),
-                getFavoriteStatus.bind(this)(id)
-            ])
-            if (results[0].status === 210) throw "210：漫画详情访问过于频繁，已被官方风控限制，请尝试切换海外线路或点击设置里的“重置设备指纹池”";
-            if (results[0].status !== 200) throw `Invalid status code: ${results[0].status}`;
-            let data = JSON.parse(results[0].body).results;
+
+            let results = null;
+            let data = null;
+            // 重试循环：处理210硬风控与软风控（results空）
+            for (let attempt = 0; attempt < 3; attempt++) {
+                let reqId = await this.getReqID();
+                await this.throttle();
+                results = await Promise.all([
+                    Network.get(`${this.apiUrl}/api/v3/comic2/${id}?in_mainland=true&request_id=${reqId}&platform=3`, this.headers),
+                    getFavoriteStatus.bind(this)(id)
+                ]);
+                if (results[0].status === 210) {
+                    // 硬风控：记录被封指纹 + 重置 + 阶梯退避
+                    this.markDeviceBlocked();
+                    this.autoResetDeviceFingerprint();
+                    let waitTime = 10000 + attempt * 10000;
+                    console.log(`详情触发210风控，等待 ${waitTime / 1000}s 后重试 (${attempt + 1}/3)`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                    continue;
+                }
+                if (results[0].status !== 200) {
+                    throw `Invalid status code: ${results[0].status}`;
+                }
+                data = JSON.parse(results[0].body).results;
+                if (!data || !data.comic) {
+                    // 软风控：重置指纹 + 退避重试
+                    this.autoResetDeviceFingerprint();
+                    let waitTime = 10000 + attempt * 10000;
+                    console.log(`详情返回空数据(软风控)，等待 ${waitTime / 1000}s 后重试 (${attempt + 1}/3)`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                    continue;
+                }
+                break;
+            }
+            if (!data || !data.comic) {
+                throw "210：漫画详情访问过于频繁，已被官方风控限制。请稍后重试或点击设置里的“重置设备指纹池”";
+            }
+
             let comicData = data.comic;
             let title = comicData.name;
             let cover = comicData.cover;
@@ -648,7 +821,7 @@ class CopyManga extends ComicSource {
             let description = comicData.brief;
             let chapters = await getChapters(id, data.groups);
             let status = comicData.status.display;
-            // 构造详情页链接（用于复制链接）
+            // 构造详情页链接
             let webDomain = this.link?.domains?.[0] || 'www.2025copy.com';
             let url = `https://${webDomain}/h5/details/comic/${id}`;
             return {
@@ -658,7 +831,14 @@ class CopyManga extends ComicSource {
                 url: url
             }
         },
+
         loadEp: async (comicId, epId) => {
+            // 读取每章重置指纹开关
+            const autoResetEveryChapter = this.loadSetting('auto_reset_finger_every_ep') === "1";
+            if (autoResetEveryChapter) {
+                this.autoResetDeviceFingerprint();
+            }
+
             let attempt = 0, maxAttempts = 6, res, data;
             while (attempt < maxAttempts) {
                 try {
@@ -666,6 +846,10 @@ class CopyManga extends ComicSource {
                     await this.throttle();
                     res = await Network.get(`${this.apiUrl}/api/v3/comic/${comicId}/chapter2/${epId}?in_mainland=true&request_id=${reqId}`, { ...this.headers });
                     if (res.status === 210) {
+                        // 硬风控：记录 + 重置 + 阶梯退避
+                        this.markDeviceBlocked();
+                        console.log(`检测到210风控，执行自动重置设备指纹`);
+                        this.autoResetDeviceFingerprint();
                         let waitTime = 10000 + attempt * 5000;
                         try {
                             let responseBody = JSON.parse(res.body);
@@ -677,11 +861,29 @@ class CopyManga extends ComicSource {
                         console.log(`Chapter ${epId} 触发风控(210)，等待 ${waitTime / 1000}s 后重试 (${attempt + 1}/${maxAttempts})`);
                         await new Promise((resolve) => setTimeout(resolve, waitTime));
                         attempt++;
-                        if (attempt >= maxAttempts) throw "210：章节内容加载频繁，已被官方风控限制。请尝试切换【海外线路】或点击设置里的“重置设备指纹池”。";
+                        if (attempt >= maxAttempts) {
+                            throw "210：章节内容加载频繁，已被官方风控限制。请尝试切换【海外线路】或点击设置里的“重置设备指纹池”。";
+                        }
                         continue;
                     }
-                    if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+                    if (res.status !== 200) {
+                        throw `Invalid status code: ${res.status}`;
+                    }
                     data = JSON.parse(res.body);
+                    // 软风控检测：章节内容为空
+                    if (!data.results || !data.results.chapter || !Array.isArray(data.results.chapter.contents)) {
+                        console.log(`检测到软风控(章节空数据)，执行自动重置设备指纹`);
+                        this.autoResetDeviceFingerprint();
+                        let waitTime = 10000 + attempt * 5000;
+                        console.log(`Chapter ${epId} 触发软风控，等待 ${waitTime / 1000}s 后重试 (${attempt + 1}/${maxAttempts})`);
+                        await new Promise((resolve) => setTimeout(resolve, waitTime));
+                        attempt++;
+                        if (attempt >= maxAttempts) {
+                            throw "210：章节内容加载频繁，已被官方风控限制。请尝试切换【海外线路】或点击设置里的“重置设备指纹池”。";
+                        }
+                        continue;
+                    }
+                    // 成功获取数据
                     let imagesUrls = data.results.chapter.contents.map((e) => e.url);
                     let orders = data.results.chapter.words;
                     let hdImagesUrls = imagesUrls.map((url) => url.replace(/([./])c\d+x\.[a-zA-Z]+$/, `$1c${this.imageQuality}x.webp`))
@@ -696,6 +898,7 @@ class CopyManga extends ComicSource {
                 }
             }
         },
+
         loadComments: async (comicId, subId, page, replyTo) => {
             let url = `${this.apiUrl}/api/v3/comments?comic_id=${subId}&limit=20&offset=${(page - 1) * 20}`;
             if (replyTo) url = url + `&reply_id=${replyTo}&_update=true`;
@@ -713,6 +916,7 @@ class CopyManga extends ComicSource {
                 maxPage: (total - (total % 20)) / 20 + 1
             }
         },
+
         sendComment: async (comicId, subId, content, replyTo) => {
             let token = this.loadData("account_token_0");
             if (!token) throw "未登录";
@@ -724,6 +928,7 @@ class CopyManga extends ComicSource {
             if (res.status !== 200) throw `Invalid status code: ${res.status}`;
             return "ok";
         },
+
         loadChapterComments: async (comicId, epId, page, replyTo) => {
             let url = `${this.apiUrl}/api/v3/roasts?chapter_id=${epId}&limit=20&offset=${(page - 1) * 20}`;
             await this.throttle();
@@ -737,6 +942,7 @@ class CopyManga extends ComicSource {
                 maxPage: (total - (total % 20)) / 20 + 1
             }
         },
+
         sendChapterComment: async (comicId, epId, content, replyTo) => {
             let token = this.loadData("account_token_0");
             if (!token) throw "未登录";
@@ -747,6 +953,7 @@ class CopyManga extends ComicSource {
             if (res.status !== 200) throw `Invalid status code: ${res.status}`;
             return "ok";
         },
+
         onClickTag: (namespace, tag) => {
             if (namespace === "标签") return { action: 'category', keyword: tag, param: null };
             if (namespace === "作者") return { action: 'search', keyword: `${namespace}:${tag}`, param: null };
@@ -780,7 +987,7 @@ class CopyManga extends ComicSource {
         idMatch: "^[A-Za-z0-9_-]+$",
     }
 
-    // ========== 设置项 ==========
+    // ========== 设置项（新增两个开关，置于 callback 之前） ==========
     settings = {
         help: {
             title: "使用帮助",
@@ -794,14 +1001,15 @@ class CopyManga extends ComicSource {
 • 收藏：可对单部漫画进行收藏/取消收藏，选择主号或某个附属号操作。「全部」视图自动合并所有账号的收藏，并按更新时间倒序排列，重复项自动去重。
 • 节点与API：预置多个镜像节点（网页/API），也可选择「自定义」并填写API地址。点击「节点测试」可检测各节点响应时间，辅助选择最佳节点（绿色✅为可用，红色❌为不可用或超时）。
 • 图片质量：低(800)、中(1200)、高(1500)，影响加载清晰度与流量消耗。
-• 搜索方式：基础API（默认）或网页端API，若搜索异常可切换尝试。
+• 搜索方式：基础API（默认）或网页端API，若搜索异常可尝试切换。
 • 收藏排序方式：可单独设置各账号收藏列表的排序（更新时间、收藏时间、阅读时间），仅对单个账号有效，「全部」固定按更新时间。
 • CDN线路：海外线路（推荐防风控）或大陆线路，遇到风控时可尝试切换。
-• 设备指纹重置：切换真实设备指纹，有助于规避风控，点击后立即生效。
+• 设备指纹重置：切换真实设备指纹，有助于规避风控，点击后立即生效（其他选项可进行自动规避风控）。
 • 密码以明文存储，请注意安全。`, [{text: "知道了", callback: () => {}}]);
                 }
             }
         },
+
         favorites_ordering: {
             title: "收藏排序方式",
             type: "select",
@@ -812,6 +1020,27 @@ class CopyManga extends ComicSource {
             ],
             default: '-datetime_updated',
         },
+
+        // ===== 新增设置项：每章节重置指纹 + 虚拟IP开关 =====
+        auto_reset_finger_every_ep: {
+            title: "每切换章节强制重置设备指纹 (谨慎开启)",
+            type: "select",
+            options: [
+                { value: "0", text: "关闭 (仅风控210才自动重置)" },
+                { value: "1", text: "开启，每一章都重置指纹" }
+            ],
+            default: "1"
+        },
+        enable_virtual_ip: {
+            title: "虚拟IP轮换 (实验性, 默认关闭)",
+            type: "select",
+            options: [
+                { value: "0", text: "关闭 (推荐，官方App不带虚拟IP)" },
+                { value: "1", text: "开启，每次重置指纹同时换虚拟IP" }
+            ],
+            default: "0"
+        },
+
         region: {
             title: "CDN线路",
             type: "select",
@@ -961,6 +1190,7 @@ class CopyManga extends ComicSource {
                 }
             }
         },
+
         clear_device_info: {
             title: "重置设备指纹池",
             type: "callback",
@@ -969,6 +1199,10 @@ class CopyManga extends ComicSource {
                 this.deleteData("_deviceinfo");
                 this.deleteData("_device");
                 this.deleteData("_pseudoid");
+                this.deleteData("_virtual_ip");
+                this.deleteData("_exclude_deviceinfo");
+                this.deleteData("_exclude_device");
+                this.deleteData("_blocked_deviceinfos");
                 await this.refreshAppApi();
                 if (typeof UI !== 'undefined' && UI.showMessage) {
                     UI.showMessage('设备指纹已重置');
@@ -980,7 +1214,7 @@ class CopyManga extends ComicSource {
             }
         },
 
-        // ---------- 添加附属账号 ----------
+        // ---------- 附属账号管理 ----------
         add_sub_account: {
             title: "添加附属账号",
             type: "callback",
@@ -1001,7 +1235,6 @@ class CopyManga extends ComicSource {
             }
         },
 
-        // ---------- 管理附属账号 ----------
         manage_sub_accounts: {
             title: "管理附属账号",
             type: "callback",
@@ -1046,7 +1279,6 @@ class CopyManga extends ComicSource {
             }
         },
 
-        // ---------- 登录所有附属账号 ----------
         login_sub_accounts: {
             title: "登录附属账号",
             type: "callback",

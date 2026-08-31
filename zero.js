@@ -1,13 +1,24 @@
 class Zerobyw extends ComicSource {
   name = "zero搬运网"
   key = "zerobyw"
-  version = "1.0.5"   // 修改发现页和分类页标题为“zero搬运网”
+  version = "1.2.0"
   minAppVersion = "1.0.0"
   baseUrl = "https://www.zerobyw33.com"
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/zero.js"
   currentEpMap = {}
 
-  // ========== 工具方法 ==========
+  // 动态域名
+  landingPage = "https://zerobyw.github.io/"
+  _domainResolved = false
+
+  // 分类映射（完整）
+  catMap = {
+    1: "卖肉", 6: "后宫", 22: "冒险", 23: "奇幻", 13: "搞笑",
+    28: "日常", 35: "职业", 29: "体育", 15: "战斗", 31: "爱情",
+    34: "机战", 40: "悬疑", 41: "美食", 42: "百合", 43: "等网源",
+  }
+
+  // ========== 工具方法（完全沿用 zero.js） ==========
   async getHtml(resp, name = "") {
     let html = ""
     try {
@@ -33,7 +44,53 @@ class Zerobyw extends ComicSource {
     }
   }
 
-  // ========== 账号管理（仅主账号） ==========
+  normalizeUrl(u) {
+    if (!u) return ""
+    u = String(u).trim()
+    if (u.startsWith("//")) return "https:" + u
+    if (u.startsWith("http://") && u.indexOf("tupa.") !== -1) {
+      return "https://" + u.substring(7)
+    }
+    if (/^https?:\/\//i.test(u)) return u
+    if (u.startsWith("/")) return this.baseUrl + u
+    return u
+  }
+
+  // 域名解析
+  async ensureDomain() {
+    if (this._domainResolved) return
+    this._domainResolved = true
+
+    let cached = this.loadData("resolved_domain")
+    if (cached) {
+      try {
+        let obj = JSON.parse(cached)
+        if (obj.domain && (!obj.t || (Date.now() - obj.t) < 24 * 3600 * 1000)) {
+          this.baseUrl = "https://" + obj.domain
+          return
+        }
+      } catch (e) {}
+    }
+
+    try {
+      let res = await Network.get(this.landingPage, this.getHeaders())
+      if (res.status === 200) {
+        let html = await this.getHtml(res, "发布页")
+        let domain = ""
+        let m = html.match(/https?:\/\/((?:www\.)?zerobyw[^\/\s"'<>]+)/)
+        if (m) domain = m[1]
+        if (domain) {
+          this.baseUrl = "https://" + domain
+          this.saveData("resolved_domain", JSON.stringify({
+            t: Date.now(),
+            domain: domain
+          }))
+        }
+      }
+    } catch (e) {}
+  }
+
+  // ========== 账号管理（无收藏夹） ==========
   account = {
     loginWithWebview: {
       url: "https://www.zerobyw33.com/member.php?mod=logging&action=login",
@@ -48,8 +105,9 @@ class Zerobyw extends ComicSource {
       }
     },
     isLoggedIn: async () => {
+      await this.ensureDomain()
       try {
-        const resp = await Network.get(`${this.baseUrl}/home.php?mod=space&do=profile`, { headers: this.getHeaders() })
+        const resp = await Network.get(this.baseUrl + "/home.php?mod=space&do=profile", { headers: this.getHeaders() })
         const html = await this.getHtml(resp, "检查登录")
         return html.includes("退出") || html.includes("我的中心") || !html.includes("请先登录")
       } catch (e) {
@@ -63,133 +121,63 @@ class Zerobyw extends ComicSource {
     registerWebsite: "https://www.zerobyw33.com/member.php?mod=register"
   }
 
-  // ========== 网络收藏夹（修复版） ==========
-  favorites = {
-    multiFolder: false,
-
-    loadFolders: async (comicId) => {
-      let folders = { "0": "收藏" };
-      let favorited = [];
-      if (comicId) {
-        const cookies = this.loadData('account_cookies');
-        if (cookies) {
-          Network.setCookies(this.baseUrl, cookies);
-          const url = `${this.baseUrl}/pc/details/?kuid=${comicId}`;
-          const resp = await Network.get(url, this.getHeaders(url));
-          const html = await this.getHtml(resp, "检查收藏状态");
-          if (html.includes('已收藏') || html.includes('取消收藏')) {
-            favorited.push("0");
-          }
-        }
-      }
-      return { folders, favorited };
-    },
-
-    addOrDelFavorite: async (comicId, folderId, isAdding) => {
-      const cookies = this.loadData('account_cookies');
-      if (!cookies) throw "请先登录";
-      Network.setCookies(this.baseUrl, cookies);
-
-      // 1. 获取 formhash
-      const profileUrl = `${this.baseUrl}/home.php?mod=space&do=profile`;
-      const resp = await Network.get(profileUrl, this.getHeaders(profileUrl));
-      const html = await this.getHtml(resp, "获取formhash");
-      const formhashMatch = html.match(/<input\s+type="hidden"\s+name="formhash"\s+value="([^"]+)"/i);
-      if (!formhashMatch) throw "获取 formhash 失败，请重新登录";
-      const formhash = formhashMatch[1];
-
-      // 2. 构造 POST 请求
-      const action = isAdding ? "add" : "del";
-      const url = `${this.baseUrl}/home.php?mod=spacecp&ac=favorite&op=${action}`;
-      const headers = {
-        ...this.getHeaders(url),
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Requested-With": "XMLHttpRequest"
-      };
-      const body = `formhash=${formhash}&favid=${comicId}&favoritesubmit=true&handlekey=favorite&infloat=yes`;
-
-      const postResp = await Network.post(url, body, { headers });
-      const resultHtml = await this.getHtml(postResp);
-
-      if (resultHtml.includes('成功') || resultHtml.includes('已收藏') || resultHtml.includes('取消收藏')) {
-        return "ok";
-      } else {
-        if (resultHtml.includes('请先登录')) throw "会话已过期，请重新登录";
-        throw "收藏操作失败，请检查网络或稍后重试";
-      }
-    },
-
-    loadComics: async (page, folder) => {
-      const cookies = this.loadData('account_cookies');
-      if (!cookies) throw "请先登录";
-      Network.setCookies(this.baseUrl, cookies);
-      const url = `${this.baseUrl}/home.php?mod=space&do=favorite&page=${page}`;
-      const resp = await Network.get(url, this.getHeaders(url));
-      const html = await this.getHtml(resp, "收藏列表");
-      const comics = [];
-      const regex = /<a[^>]+href="[^"]*kuid=(\d+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<h3[^>]+class="[^"]*manga-card-title[^"]*"[^>]*>([^<]+)<\/h3>/gi;
-      let m;
-      while ((m = regex.exec(html)) !== null && comics.length < 40) {
-        const id = m[1].trim();
-        const cover = m[2] ? m[2].trim() : "";
-        let title = this.decodeHtmlEntities(m[3].trim()).replace(/\s+/g, " ");
-        if (title.length > 2 && !/阅读|返回|榜单/.test(title)) {
-          comics.push({ id, title, cover });
-        }
-      }
-      if (comics.length === 0) {
-        const doc = new HtmlDocument(html);
-        const items = doc.querySelectorAll('.favorite-item, .myfavorite-item, .comic-item');
-        for (const item of items) {
-          const a = item.querySelector('a[href*="kuid"]');
-          const img = item.querySelector('img');
-          const titleEl = item.querySelector('.title, h3, .comic-title');
-          if (!a) continue;
-          const id = a.attributes.href.match(/kuid=(\d+)/)?.[1] || "";
-          const cover = img?.attributes.src || img?.attributes['data-src'] || "";
-          const title = titleEl ? titleEl.text.trim() : "";
-          if (id && title) comics.push({ id, title, cover });
-        }
-        doc.dispose();
-      }
-      const maxPage = comics.length > 0 ? page + 1 : page;
-      return { comics, maxPage };
-    }
-  }
-
-  // ========== 分类（标题已改为“zero搬运网”） ==========
+  // ========== 分类 ==========
   category = {
-    title: "zero搬运网",   // 修改此处
-    parts: [{
-        name: "主题",
+    title: "zero搬运网",
+    parts: [
+      {
+        name: "分类",
         type: "fixed",
         itemType: "category",
-        categories: ["全部", "卖肉", "后宫", "冒险", "奇幻", "搞笑", "日常", "职业", "体育", "战斗", "爱情", "机甲", "悬疑", "美食", "百合"],
-        categoryParams: ["", "&category_id=1", "&category_id=6", "&category_id=22", "&category_id=23", "&category_id=13", "&category_id=28", "&category_id=35", "&category_id=29", "&category_id=15", "&category_id=31", "&category_id=34", "&category_id=40", "&category_id=41", "&category_id=42"]
+        categories: Object.values(this.catMap),
+        categoryParams: Object.keys(this.catMap).map(k => "cat_" + k),
       },
       {
         name: "进度",
         type: "fixed",
         itemType: "category",
         categories: ["连载中", "已完结"],
-        categoryParams: ["&jindu=0", "&jindu=1"]
+        categoryParams: ["progress_0", "progress_1"],
       },
       {
-        name: "性质",
+        name: "语言",
         type: "fixed",
         itemType: "category",
-        categories: ["一半中文一半生肉", "全生肉", "全中文"],
-        categoryParams: ["&shuxing=%E4%B8%80%E5%8D%8A%E4%B8%AD%E6%96%87%E4%B8%80%E5%8D%8A%E7%94%9F%E8%82%89", "&shuxing=%E5%85%A8%E7%94%9F%E8%82%89", "&shuxing=%E5%85%A8%E4%B8%AD%E6%96%87"]
-      }
-    ]
+        categories: ["全中文", "一半中文一半生肉", "全生肉"],
+        categoryParams: ["lang_全中文", "lang_一半中文一半生肉", "lang_全生肉"],
+      },
+      {
+        name: "排序",
+        type: "fixed",
+        itemType: "category",
+        categories: ["人气", "收藏"],
+        categoryParams: ["sort_views", "sort_favores"],
+      },
+    ],
+    enableRankingPage: false,
   }
 
   categoryComics = {
     load: async (category, param, options, page) => {
-      let url = `${this.baseUrl}/pc/pc/?page=${page}`
-      if (param) url += param
+      await this.ensureDomain()
+      let url = this.baseUrl + "/pc/pc/?page=" + page
+
+      if (param.startsWith("cat_")) {
+        let catId = param.replace("cat_", "")
+        if (catId !== "all") url += "&category_id=" + catId
+      } else if (param.startsWith("progress_")) {
+        let jindu = param.replace("progress_", "")
+        if (jindu !== "all") url += "&jindu=" + jindu
+      } else if (param.startsWith("lang_")) {
+        let shuxing = param.replace("lang_", "")
+        if (shuxing !== "all") url += "&shuxing=" + encodeURIComponent(shuxing)
+      } else if (param.startsWith("sort_")) {
+        if (param === "sort_views") url += "&order=views&dir=desc"
+        else if (param === "sort_favores") url += "&order=favores&dir=desc"
+      }
+
       try {
-        const resp = await Network.get(url, { headers: this.getHeaders() })
+        const resp = await Network.get(url, { headers: this.getHeaders(url) })
         const html = await this.getHtml(resp, "分类页")
         const comics = []
         const regex = /<a[^>]+href="[^"]*kuid=(\d+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<h3[^>]+class="[^"]*manga-card-title[^"]*"[^>]*>([^<]+)<\/h3>/gi
@@ -202,21 +190,38 @@ class Zerobyw extends ComicSource {
             comics.push({ id, title, cover })
           }
         }
-        return { comics }
+
+        // 提取最大页码（从所有 page= 参数中取最大值）
+        let maxPage = page
+        const pageMatches = html.match(/[?&]page=(\d+)/g)
+        if (pageMatches) {
+          let max = 0
+          for (let match of pageMatches) {
+            let num = parseInt(match.match(/\d+/)[0], 10)
+            if (num > max) max = num
+          }
+          if (max > maxPage) maxPage = max
+        } else {
+          // 如果没有分页链接，根据是否有内容决定是否还有下一页
+          maxPage = comics.length > 0 ? page + 1 : page
+        }
+        return { comics, maxPage }
       } catch (e) {
-        return { comics: [] }
+        return { comics: [], maxPage: page }
       }
     }
   }
 
-  // ========== 发现页（标题已改为“zero搬运网”） ==========
-  explore = [{
-    title: "zero搬运网",   // 修改此处
-    type: "multiPageComicList",
-    load: async (page) => {
-      const url = `${this.baseUrl}/pc/pc/?page=${page}`
-      try {
-        const resp = await Network.get(url, { headers: this.getHeaders() })
+  // ========== 发现页（multiPartPage，展示最新，带“更多”跳转分类全部） ==========
+  explore = [
+    {
+      title: "zero搬运网",
+      type: "multiPartPage",
+      load: async (page) => {
+        await this.ensureDomain()
+        // 固定取最新排序的第一页
+        const url = this.baseUrl + "/pc/pc/?order=addtime&dir=desc&page=1"
+        const resp = await Network.get(url, { headers: this.getHeaders(url) })
         const html = await this.getHtml(resp, "发现页")
         const comics = []
         const regex = /<a[^>]+href="[^"]*kuid=(\d+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<h3[^>]+class="[^"]*manga-card-title[^"]*"[^>]*>([^<]+)<\/h3>/gi
@@ -229,19 +234,25 @@ class Zerobyw extends ComicSource {
             comics.push({ id, title, cover })
           }
         }
-        return { comics }
-      } catch (e) {
-        return { comics: [] }
+        return [
+          {
+            title: "LATEST",
+            comics,
+            viewMore: { page: "category", attributes: { category: "全部", param: "cat_all" } },
+          }
+        ]
       }
     }
-  }]
+  ]
 
-  // ========== 搜索 ==========
+  // ========== 搜索（沿用 zero.js） ==========
   search = {
     load: async (keyword, options, page) => {
       if (!keyword?.trim()) return { comics: [] }
-      const url = `${this.baseUrl}/pc/pc/?keyword=${encodeURIComponent(keyword)}&page=${page}`
-      return Network.get(url, { headers: this.getHeaders() }).then(async (resp) => {
+      await this.ensureDomain()
+      const url = this.baseUrl + `/pc/pc/?keyword=${encodeURIComponent(keyword)}&page=${page}`
+      try {
+        const resp = await Network.get(url, { headers: this.getHeaders(url) })
         const html = await this.getHtml(resp)
         const comics = []
         const regex = /<a[^>]+href="[^"]*kuid=(\d+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<h3[^>]+class="[^"]*manga-card-title[^"]*"[^>]*>([^<]+)<\/h3>/gi
@@ -254,15 +265,31 @@ class Zerobyw extends ComicSource {
             comics.push({ id, title, cover })
           }
         }
-        return { comics }
-      }).catch(() => ({ comics: [] }))
-    }
+        let maxPage = page
+        const pageMatches = html.match(/[?&]page=(\d+)/g)
+        if (pageMatches) {
+          let max = 0
+          for (let match of pageMatches) {
+            let num = parseInt(match.match(/\d+/)[0], 10)
+            if (num > max) max = num
+          }
+          if (max > maxPage) maxPage = max
+        } else {
+          maxPage = comics.length > 0 ? page + 1 : page
+        }
+        return { comics, maxPage }
+      } catch (e) {
+        return { comics: [] }
+      }
+    },
+    optionList: []
   }
 
-  // ========== 漫画详情 ==========
+  // ========== 漫画详情（完全保留 zero.js 原有逻辑） ==========
   comic = {
     loadInfo: async (id) => {
-      const url = `${this.baseUrl}/pc/details/?kuid=${id}`
+      await this.ensureDomain()
+      const url = this.baseUrl + `/pc/details/?kuid=${id}`
       await this.account.isLoggedIn()
       return Network.get(url, { headers: this.getHeaders(this.baseUrl) }).then(async (resp) => {
         const html = await this.getHtml(resp, "详情页")
@@ -326,21 +353,19 @@ class Zerobyw extends ComicSource {
         const chapters = {}
         eps.forEach((ep, i) => { chapters[i.toString()] = ep.title })
 
-        const detailUrl = `${this.baseUrl}/pc/details/?kuid=${id}`
-
         return {
           title,
           cover,
           description,
           tags,
           chapters,
-          url: detailUrl
+          url: this.baseUrl + `/pc/details/?kuid=${id}`
         }
       })
     },
 
     loadComments: async (comicId, subId, page, replyTo) => {
-      const url = `${this.baseUrl}/pc/details/?kuid=${comicId}`;
+      const url = this.baseUrl + `/pc/details/?kuid=${comicId}`;
       try {
         const resp = await Network.get(url, { headers: this.getHeaders(this.baseUrl) });
         const html = await this.getHtml(resp, "评论页");
@@ -395,8 +420,9 @@ class Zerobyw extends ComicSource {
     },
 
     loadEp: async (comicId, epId) => {
+      await this.ensureDomain()
       const realZjid = this.currentEpMap[epId] || epId
-      const url = `${this.baseUrl}/pc/view/index.php?zjid=${realZjid}`
+      const url = this.baseUrl + `/pc/view/index.php?zjid=${realZjid}`
       try {
         const resp = await Network.get(url, { headers: this.getHeaders(url) })
         const html = await this.getHtml(resp, "阅读页")
@@ -428,5 +454,20 @@ class Zerobyw extends ComicSource {
       }
     },
     idMatch: "^\\d+$"
+  }
+
+  // ========== 设置（刷新域名） ==========
+  settings = {
+    refresh_domain: {
+      title: "刷新域名",
+      type: "callback",
+      buttonText: "从永久发布页刷新最新域名",
+      callback: async () => {
+        this.deleteData("resolved_domain")
+        this._domainResolved = false
+        await this.ensureDomain()
+        return "✅ 已刷新，当前域名: " + this.baseUrl
+      }
+    }
   }
 }
