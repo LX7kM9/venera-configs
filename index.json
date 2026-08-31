@@ -66,8 +66,8 @@
         "name": "禁漫天堂",
         "fileName": "recode-jm.js",
         "key": "jm",
-        "version": "1.8.3",
-        "description":  "非个人自制，更新需点击插件卡片上的更新"
+        "version": "1.8.6",
+        "description":  "二改，增加漫画详情页链接复制，分享链接可手动修改域名"
     },
     {
         "name": "拷贝漫画",

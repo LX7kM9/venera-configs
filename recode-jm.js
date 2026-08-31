@@ -1,12 +1,12 @@
 class JM extends ComicSource {
-    name = "禁漫天堂(重构)"
+    name = "禁漫天堂"
     key = "jm"
-    version = "1.8.3"
+    version = "1.8.6"
     minAppVersion = "1.5.0"
 
     static jmVersion = "2.0.16"
     static jmPkgName = "com.example.app"
-    url = "https://ghfast.top/https://raw.githubusercontent.com/BB-CHICKEN/venera-jm.js/main/recode-jm.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/recode-jm.js"
 
     dailyCheckInInProgress = false
     _loggedIn = false
@@ -23,6 +23,13 @@ class JM extends ComicSource {
     ];
     static apiDomains = JM.fallbackServers;
     static imageUrl = "https://cdn-msp.jmapiproxy1.cc"
+    static fallbackImageUrls = [
+        "https://cdn-msp.jmapiproxy1.cc",
+        "https://cdn-msp.jmapiproxy2.cc",
+        "https://cdn-msp.jmapiproxy3.cc",
+        "https://cdn-msp.jmapinodeudzn.net",
+        "https://cdn-msp.jmapinodeudzn.cc",
+    ]
 
     static ua = "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36"
 
@@ -550,11 +557,11 @@ class JM extends ComicSource {
         let description = comic.description ?? ""
         let cover = this.getCoverUrl(id)
         let tags = []
-        if (comic["category"]["title"]) {
-            tags.push(comic["category"]["title"])
+        if (comic?.category?.title) {
+            tags.push(comic.category.title)
         }
-        if (comic["category_sub"]["title"]) {
-            tags.push(comic["category_sub"]["title"])
+        if (comic?.category_sub?.title) {
+            tags.push(comic.category_sub.title)
         }
         return new Comic({
             id: id,
@@ -647,7 +654,7 @@ class JM extends ComicSource {
     // ---------- 登录过期处理（支持重试） ----------
     handleLoginExpired(originalUrl, originalBody, method) {
         if (this._reLoginDialogShown) {
-            return new Promise(() => { });
+            return Promise.reject(new Error("登录弹窗已显示，请先处理当前弹窗"));
         }
         this._reLoginDialogShown = true;
 
@@ -834,7 +841,7 @@ class JM extends ComicSource {
             this.saveData("uid", null);
         },
 
-        registerWebsite: null
+        registerWebsite: "https://18comic.vip/signup"   // 注册入口
     }
 
     // ---------- 探索 ----------
@@ -1055,6 +1062,23 @@ class JM extends ComicSource {
             if (id.startsWith('jm')) {
                 id = id.substring(2)
             }
+            let colonIdx = Math.max(id.indexOf(':'), id.indexOf('：'));
+            if (colonIdx !== -1) {
+                let afterColon = id.substring(colonIdx + 1);
+                let numbers = afterColon.match(/\d+/g);
+                if (numbers) {
+                    let combined = numbers.join('');
+                    if (combined.length >= 5) {
+                        id = combined;
+                    }
+                }
+            }
+            if (!/^\d+$/.test(id)) {
+                let idMatch = id.match(/(\d{5,})/);
+                if (idMatch) {
+                    id = idMatch[1];
+                }
+            }
             let res = await this.get(`${this.baseUrl}/album?id=${id}`);
             let data = JSON.parse(res)
             let author = data.author ?? []
@@ -1086,6 +1110,10 @@ class JM extends ComicSource {
             let date = new Date(updateTimeStamp * 1000)
             let updateDate = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 
+            // ---------- 构造详情页链接（优先使用 18comic.vip） ----------
+            let webDomain = this.link?.domains?.[0] || '18comic.vip';   // 改为 18comic.vip
+            let url = `https://${webDomain}/album/${id}`;
+
             return new ComicDetails({
                 title: data.name,
                 cover: this.getCoverUrl(id),
@@ -1102,6 +1130,7 @@ class JM extends ComicSource {
                 recommend: related,
                 isLiked: data.liked ?? false,
                 updateTime: updateDate,
+                url: url,   // 供复制链接使用
             })
         },
         loadEp: async (comicId, epId) => {
@@ -1145,7 +1174,10 @@ class JM extends ComicSource {
                 num = remainder * 2 + 2;
             }
             if (num <= 1) {
-                return {};
+                return {
+                    headers: this.getImgHeaders(),
+                    onLoadFailed: this.comic._makeImageRetry(url),
+                };
             }
             return {
                 headers: this.getImgHeaders(),
@@ -1176,6 +1208,17 @@ class JM extends ComicSource {
                         return res
                     }
                 `,
+                onLoadFailed: this.comic._makeImageRetry(url),
+            };
+        },
+        _makeImageRetry: (url) => {
+            let tried = 0;
+            return () => {
+                const fallbacks = JM.fallbackImageUrls.filter((u) => !url.startsWith(u));
+                if (tried >= fallbacks.length) return null;
+                const newUrl = url.replace(/https:\/\/[^/]+/, fallbacks[tried]);
+                tried++;
+                return { url: newUrl, headers: this.getImgHeaders() };
             };
         },
         onThumbnailLoad: (url) => {
@@ -1223,13 +1266,65 @@ class JM extends ComicSource {
             }
             return "ok"
         },
-        idMatch: "^(\\d+|jm\\d+)$",
+        loadChapterComments: async (comicId, epId, page, replyTo) => {
+            let url = `${this.baseUrl}/forum?mode=manhua&aid=${epId}&page=${page}`
+            if (replyTo) {
+                url += `&comment_id=${replyTo}`
+            }
+            let res = await this.get(url)
+            let json = JSON.parse(res)
+            const pageSize = 6
+            return {
+                comments: json.list.map((e) => new Comment({
+                    id: e.id?.toString(),
+                    avatar: this.getAvatarUrl(e.photo),
+                    userName: e.username,
+                    time: e.addtime,
+                    content: e.content.substring(e.content.indexOf('>') + 1, e.content.lastIndexOf('<')),
+                    replyTo: replyTo || undefined,
+                })),
+                maxPage: Math.floor(json.total / pageSize) + 1
+            }
+        },
+        sendChapterComment: async (comicId, epId, content, replyTo) => {
+            let params = `video_id=${epId}&comment=${encodeURIComponent(content)}&status=true`
+            if (replyTo) {
+                params += `&comment_id=${replyTo}&is_reply=1&forum_subject=1`
+            }
+            let res = await this.post(`${this.baseUrl}/comment`, params)
+            let json = JSON.parse(res)
+            if (json.status === "fail") {
+                throw json.msg ?? 'Failed to send comment'
+            }
+            return "ok"
+        },
+        idMatch: "^(?:jm)?(\\d{5,})$|[:：]\\s*(\\d{5,})|[:：].*\\d+.*\\d+",
+        enableTagsTranslate: true,
         onClickTag: (namespace, tag) => {
             return {
                 action: 'search',
                 keyword: tag,
             }
         },
+        // ---------- 链接配置（供框架识别和生成链接） ----------
+        link: {
+            domains: [
+                '18comic.vip',              // 优先使用该域名
+                'www.18comic.vip',
+                'www.jmcomic.cc',
+                'jmcomic.cc',
+                'www.jmcomic2.cc',
+                'jmcomic2.cc',
+                'www.18comic.org',
+                '18comic.org'
+            ],
+            linkToId: (url) => {
+                let match = url.match(/\/album\/(\d+)/i) ||
+                            url.match(/\/g\/(\d+)/i) ||
+                            url.match(/\/comic\/(\d+)/i);
+                return match ? match[1] : null;
+            }
+        }
     }
 
     // ---------- 设置 ----------
