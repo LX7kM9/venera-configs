@@ -1,7 +1,7 @@
 class ShonenJumpPlus extends ComicSource {
   name = "少年ジャンプ＋";
   key = "shonen_jump_plus";
-  version = "1.1.4"; // 修复链接解析，增加网页抓取提取 seriesId
+  version = "1.2.2"; // 修复链接解析，增加网页抓取提取 seriesId
   minAppVersion = "1.2.1";
   url =
     "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
