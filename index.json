@@ -98,6 +98,20 @@
         "description": "非个人自制"
     },
     {
+        "name": "W漫画",
+        "fileName": "wmanhua.js",
+        "key": "wmanhua",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "爱看漫",
+        "fileName": "ikmmh.js",
+        "key": "ikmmh",
+        "version": "3.0.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "zero搬运网",
         "fileName": "zero.js",
         "key": "zerobyw",
