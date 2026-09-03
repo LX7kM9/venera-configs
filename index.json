@@ -115,8 +115,22 @@
         "name": "优酷漫画",
         "fileName": "ykmh.js",
         "key": "ykmh",
-        "version": "1.0.8",
-        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.0.9",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "动漫屋",
+        "fileName": "dm5.js",
+        "key": "dm5",
+        "version": "1.0.1",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "极速漫画",
+        "fileName": "one_kkk.js",
+        "key": "one_kkk",
+        "version": "1.0.1",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "MangaDex",
@@ -178,8 +192,8 @@
         "name": "漫画人",
         "fileName": "manhuaren.js",
         "key": "manhuaren",
-        "version": "1.0.1",
-        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.0.2",
+        "description": "官方版本，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "H-Comic",

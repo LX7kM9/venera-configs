@@ -2,7 +2,7 @@
 class YKMHSource extends ComicSource {
     name = "优酷漫画"
     key = "ykmh"
-    version = "1.0.8"   // 修复复制链接和链接解析（支持英文路径）
+    version = "1.0.9"   // 改为 singlePageWithMultiPart，去掉无效的“查看更多”
     minAppVersion = "1.4.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/ykmh.js"
 
@@ -38,11 +38,12 @@ class YKMHSource extends ComicSource {
         return finalUrl;
     }
 
+    // ==================== 探索页（改为 singlePageWithMultiPart） ====================
     explore = [
         {
             title: "优酷漫画",
-            type: "multiPartPage",
-            load: async (page) => {
+            type: "singlePageWithMultiPart",
+            load: async () => {
                 let res = await Network.get("https://www.ykmh.net", { headers: this.commonHeaders })
                 if (res.status !== 200) {
                     if (res.body && res.body.includes("cloudflare")) throw "触发 Cloudflare 验证。请在内置浏览器中打开 https://www.ykmh.net/ 完成验证后再使用。";
@@ -68,8 +69,21 @@ class YKMHSource extends ComicSource {
                     }
                     return latestComics.slice(0, 15);
                 }
-                return [{ title: "热门推荐", comics: parseHotCarousel(res.body) }, { title: "最新更新", comics: parseLatestComics(res.body) }];
+                
+                // 生成两个板块
+                let parts = [
+                    { title: "热门推荐", comics: parseHotCarousel(res.body) },
+                    { title: "最新更新", comics: parseLatestComics(res.body) }
+                ];
+                
+                // 转换为对象（键为标题，值为漫画列表）
+                let result = {};
+                for (let part of parts) {
+                    result[part.title] = part.comics;
+                }
+                return result;
             }
+            // 无需 loadNext
         }
     ]
 
@@ -205,7 +219,6 @@ class YKMHSource extends ComicSource {
 
             // ===== 修复：直接使用当前 URL 作为复制链接，替换域名为 PC 端 =====
             let detailUrl = targetUrl.replace('https://m.ykmh.net/', 'https://www.ykmh.net/');
-            // 如果链接末尾有斜杠，保留；没有则补上（可选）
             if (!detailUrl.endsWith('/')) detailUrl += '/';
 
             return { 
