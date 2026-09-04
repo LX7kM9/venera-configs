@@ -133,6 +133,20 @@
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "51漫画",
+        "fileName": "51manga.js",
+        "key": "manga51",
+        "version": "1.2.0",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "CosplayTele",
+        "fileName": "cosplaytele.js",
+        "key": "cosplaytele",
+        "version": "1.7.5",
+        "description": "非个人自制，修复漫画封面在历史记录不显示的问题，修复漫画详情页标题异常显示的问题，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "优酷漫画",
         "fileName": "ykmh.js",
         "key": "ykmh",
