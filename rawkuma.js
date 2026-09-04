@@ -3,7 +3,7 @@ class Rawkuma extends ComicSource {
     key = "rawkuma"
     version = "1.1.1"
     minAppVersion = "1.0.0"
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rawkuma.js"
     baseUrl = "https://rawkuma.net"
 
     static defaultBaseUrl = "rawkuma.net"
