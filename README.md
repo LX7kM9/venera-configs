@@ -7,10 +7,10 @@ The comic sources from this origin support the functions of copying links and li
 
 ## Link：
 ```
-https://raw.githubusercontent.com/LX7kM9/venera-configs/main/indexN.json
+https://raw.githubusercontent.com/LX7kM9/venera-configs/main/index.json
 ```
 
 ## Mirror link
 ```
-https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/indexN.json
+https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/index.json
 ```
