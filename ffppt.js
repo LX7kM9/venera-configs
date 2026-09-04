@@ -3,7 +3,7 @@ class Ffppt extends ComicSource {
     key = "ffppt";
     version = "1.0.2";
     minAppVersion = "1.0.0";
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/ffppt.js";
 
     HOST = "https://ffppt.com";
     UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
