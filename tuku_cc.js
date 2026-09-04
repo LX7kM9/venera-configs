@@ -9,7 +9,7 @@ class TukuCC extends ComicSource {
 
     minAppVersion = "1.4.0";
 
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/tuku_cc.js";
 
     baseUrl = "https://www.tuku.cc";
 
