@@ -4,7 +4,7 @@ class ShonenJumpPlus extends ComicSource {
   version = "1.2.2"; // 修复链接解析，增加网页抓取提取 seriesId
   minAppVersion = "1.2.1";
   url =
-    "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
+    "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/shonen_jump_plus.js";
 
   deviceId = this.generateDeviceId();
   bearerToken = null;
