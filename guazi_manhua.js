@@ -4,7 +4,7 @@ class GuaziManhua extends ComicSource {
     key = "guazimanhua"
     version = "1.0.4"
     minAppVersion = "1.0.0"
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/guazi_manhua.js"
 
     get baseUrl() {
         return "https://www.guazimanhua.com"
