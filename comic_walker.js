@@ -1,10 +1,10 @@
 class ComicWalker extends ComicSource {
   name = "カドコミ";
   key = "comic_walker";
-  version = "1.3.1";   // 增强 ID 提取，修复链接解析
+  version = "1.3.2";   // 增强 ID 提取，修复链接解析
   minAppVersion = "1.6.0";
   url =
-    "https://cdn.jsdelivr.net/gh/LX7kM9/venerax-configs@main/index.json";
+    "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/index.json";
 
   api_key = "ytBrdQ2ZYdRQguqEusVLxQVUgakNnVht";
   latestVersion = "2.1.0";
