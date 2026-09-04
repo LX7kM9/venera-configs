@@ -119,6 +119,20 @@
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "哔哩漫画",
+        "fileName": "bilimanga.js",
+        "key": "bilimanga",
+        "version": "1.2.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "MangaForFree",
+        "fileName": "mangaforfree.js",
+        "key": "mangaforfree",
+        "version": "0.6.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "优酷漫画",
         "fileName": "ykmh.js",
         "key": "ykmh",
