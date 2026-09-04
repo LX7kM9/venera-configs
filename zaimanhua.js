@@ -5,7 +5,7 @@ class Zaimanhua extends ComicSource {
   version = "1.0.3";   // 增加复制链接和链接解析跳转功能
   minAppVersion = "1.0.0";
   url =
-    "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/zaimanhua.js";
+    "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/zaimanhua.js";
 
   // 初始化请求头
   init() {
