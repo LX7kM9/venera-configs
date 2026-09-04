@@ -279,7 +279,7 @@ class LaiManHua extends ComicSource {
     version = "1.2.2";
 
     minAppVersion = "1.0.0";
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/laimanhua_split.js";
 
     // 固定分流：搜索/详情/阅读使用 www；首页/分类使用移动域名。
     SEARCH_HOST = "https://www.laimanhua88.com";
