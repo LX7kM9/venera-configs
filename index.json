@@ -112,6 +112,13 @@
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "4KHD",
+        "fileName": "4khd.js",
+        "key": "fourkhd",
+        "version": "1.4.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "优酷漫画",
         "fileName": "ykmh.js",
         "key": "ykmh",
