@@ -11,7 +11,7 @@ class WManHua extends ComicSource {
   // 与官方 singlePageWithMultiPart 参考源保持一致的最低版本
   minAppVersion = "1.4.0";
 
-  url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js";
+  url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/wmanhua.js";
 
   base = "https://www.wmanhua.com";
 
