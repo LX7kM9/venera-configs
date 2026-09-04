@@ -1,0 +1,254 @@
+[
+    {
+        "name": "瓜子漫画",
+        "fileName": "guazi_manhua.js",
+        "key": "guazimanhua",
+        "version": "1.0.4",
+        "description": "非个人自制"
+    },
+    {
+        "name": "百合会",
+        "fileName": "baihehui.js",
+        "key": "baihehui",
+        "version": "1.0.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "香蕉漫画",
+        "fileName": "banana.js",
+        "key": "banana",
+        "version": "1.0.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "动漫啦",
+        "fileName": "dongman_la.js",
+        "key": "dongman_la",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "古风漫画",
+        "fileName": "gfmh.js",
+        "key": "gfmh",
+        "version": "1.3.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "腾讯动漫（正版）",
+        "fileName": "qq_comic_official.js",
+        "key": "qq_comic_official",
+        "version": "1.0.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "如漫画",
+        "fileName": "rumanhua.js",
+        "key": "rumanhua",
+        "version": "1.2.7",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "飞翔漫画",
+        "fileName": "ffppt.js",
+        "key": "ffppt",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "来漫画",
+        "fileName": "laimanhua.js",
+        "key": "laimanhua_split",
+        "version": "1.2.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫网",
+        "fileName": "manwang.js",
+        "key": "manwang",
+        "version": "1.2.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "MOJOIN",
+        "fileName": "mojoin.js",
+        "key": "mojoin",
+        "version": "1.0.8",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Rawkuma",
+        "fileName": "rawkuma.js",
+        "key": "rawkuma",
+        "version": "1.1.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "图库漫画",
+        "fileName": "tuku_cc.js",
+        "key": "tuku_cc",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "W漫画",
+        "fileName": "wmanhua.js",
+        "key": "wmanhua",
+        "version": "1.0.2",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "爱看漫",
+        "fileName": "ikmmh.js",
+        "key": "ikmmh",
+        "version": "3.0.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "哔哩漫画",
+        "fileName": "bilimanga.js",
+        "key": "bilimanga",
+        "version": "1.2.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "51漫画",
+        "fileName": "51manga.js",
+        "key": "manga51",
+        "version": "1.2.0",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "优酷漫画",
+        "fileName": "ykmh.js",
+        "key": "ykmh",
+        "version": "1.0.9",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "动漫屋",
+        "fileName": "dm5.js",
+        "key": "dm5",
+        "version": "1.0.1",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "极速漫画",
+        "fileName": "one_kkk.js",
+        "key": "one_kkk",
+        "version": "1.0.1",
+        "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Mangabz",
+        "fileName": "mangabz.js",
+        "key": "mangabz",
+        "version": "0.9.3",
+        "description": "非个人自制，修复漫画详情页报错问题，修复漫画不显示图片的问题（漫画一直不显示），修复发现页缺少内容的问题，新增分类页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "野蛮漫画",
+        "fileName": "yemancomic.js",
+        "key": "yemancomic",
+        "version": "0.3.6",
+        "description": "非个人自制，修复发现页1不显示内容的问题，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "MangaDex",
+        "fileName": "manga_dex.js",
+        "key": "manga_dex",
+        "version": "1.9.4",
+        "description":  "非个人自制，仅修复翻译问题，支持链接解析跳转"
+    },
+    {
+        "name": "包子漫画",
+        "fileName": "baozi.js",
+        "key": "baozi",
+        "version": "1.1.7",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "comick",
+        "fileName": "comick.js",
+        "key": "comick",
+        "version": "1.3.0",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "再漫画",
+        "fileName": "zaimanhua.js",
+        "key": "zaimanhua",
+        "version": "1.0.3",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "GoDa漫画",
+        "fileName": "goda.js",
+        "key": "goda",
+        "version": "1.2.4",
+        "description": "官方版本，去除发现页无用的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫画人",
+        "fileName": "manhuaren.js",
+        "key": "manhuaren",
+        "version": "1.0.2",
+        "description": "官方版本，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "CCC追漫台",
+        "fileName": "ccc.js",
+        "key": "ccc",
+        "version": "1.0.9",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转，修复发现页部分403漫画（没有详情页直接阅读）详情页和阅读问题"
+    },
+    {
+        "name": "Lanraragi",
+        "fileName": "lanraragi.js",
+        "key": "lanraragi",
+        "version": "1.2.3",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转，修复搜索400问题"
+    },
+    {
+        "name": "zero搬运网",
+        "fileName": "zero.js",
+        "key": "zerobyw",
+        "version": "1.2.0",
+        "description":  "增加获取最新链接，增加分类页金额发现页的翻页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "拷贝漫画",
+        "fileName": "copy_manga.js",
+        "key": "copy_manga",
+        "version": "2.3.0",
+        "description": "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Komiic",
+        "fileName": "komiic.js",
+        "key": "Komiic",
+        "version": "1.8.3",
+        "description": "多账号登录优化（仅支持主账号收藏夹），双种网络收藏夹支持（喜爱+书柜），支持自填写api和预置api，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Pixiv",
+        "fileName": "pixiv.js",
+        "key": "pixiv",
+        "version": "1.5.0",
+        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，目前无法攻破多账号问题和直连问题"
+    },
+    {
+        "name": "少年ジャンプ＋",
+        "fileName": "shonen_jump_plus.js",
+        "key": "shonen_jump_plus",
+        "version": "1.2.1",
+        "description": "经ai修复后功能可用，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "カドコミ",
+        "fileName": "comic_walker.js",
+        "key": "comic_walker",
+        "version": "1.3.1",
+        "description": "经ai修复后功能可用，增加漫画详情页链接复制，支持链接解析跳转"
+    }
+]
