@@ -3,7 +3,7 @@ class MojoinV2 extends ComicSource {
   key = "mojoin";
   version = "1.0.8";
   minAppVersion = "1.0.0";
-  url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js";
+  url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/mojoin.js";
 
   baseUrl = "https://mojoin.com";
   apiBase = "https://mojoin-api.com/comics";
