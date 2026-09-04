@@ -108,15 +108,13 @@ function decodeBase64(str) {
 
 /** @type {import('./_venera_.js')} */
 class Goda extends ComicSource {
-  // 注意：标记为 [可选] 的字段如果不使用，应将其删除
-
   // 源名称
   name = "GoDa漫画"
 
   // 源唯一标识
   key = "goda"
 
-  version = "1.2.2"   // 增加复制链接和链接解析功能
+  version = "1.2.4"   // 改为 singlePageWithMultiPart 隐藏查看更多
 
   minAppVersion = "1.4.0"
 
@@ -177,42 +175,34 @@ class Goda extends ComicSource {
     return result;
   }
 
-  // 发现页列表
+  // 发现页列表 - 改为 singlePageWithMultiPart，返回对象，无“查看更多”
   explore = [
     {
-      // 页面标题
-      // title 用于标识页面，必须唯一
       title: this.name,
-
-      /// multiPartPage 或 multiPageComicList 或 mixed
-      type: "multiPartPage",
-
+      type: "singlePageWithMultiPart",
       load: async () => {
         const res = await Network.get(this.baseUrl, this.headers);
         const document = new HtmlDocument(res.body);
-        const result = [{ title: "近期更新", comics: [], viewMore: null }];
+        const result = {};
+
+        // “近期更新”部分
+        result["近期更新"] = [];
         for (let item of document.querySelector(".pb-unit-md").querySelectorAll(".slicarda")) {
-          result[0].comics.push(new Comic({
+          result["近期更新"].push(new Comic({
             id: item.attributes["href"],
             title: item.querySelector("h3").text,
             cover: item.querySelector("img").attributes["src"]
-          }))
+          }));
         }
+
+        // 其他分类板块（如“热门”、“推荐”等）
         const cardlists = document.querySelectorAll(".cardlist");
         const hometitles = document.querySelectorAll(".hometitle");
         for (let i = 0; i < hometitles.length; i++) {
-          result.push({
-            title: hometitles[i].querySelector("h2").text,
-            comics: this.parseComics(cardlists[i]),
-            viewMore: {
-              page: "category",
-              attributes: {
-                category: hometitles[i].querySelector("h2").text,
-                param: hometitles[i].attributes["href"]
-              },
-            }
-          });
+          const title = hometitles[i].querySelector("h2").text;
+          result[title] = this.parseComics(cardlists[i]);
         }
+
         return result;
       }
     }
@@ -220,7 +210,6 @@ class Goda extends ComicSource {
 
   // 分类
   category = {
-    /// 分类页标题，用于标识页面，必须唯一
     title: this.name,
     parts: [
       {
@@ -316,7 +305,6 @@ class Goda extends ComicSource {
         ],
       }
     ],
-    // 是否启用排行榜页面
     enableRankingPage: false,
   }
 
@@ -360,7 +348,6 @@ class Goda extends ComicSource {
         maxPage: maxPage
       };
     },
-    // 是否启用标签建议
     enableTagsSuggestions: false,
   }
 
@@ -454,7 +441,6 @@ class Goda extends ComicSource {
         }
       }
 
-      // ========== 生成详情页 URL（供复制链接使用） ==========
       const comicUrl = this.baseUrl + id;
 
       return new ComicDetails({
@@ -484,7 +470,6 @@ class Goda extends ComicSource {
         throw "章节数据解析失败";
       }
 
-      // 空值安全检查：防止 API 返回异常数据结构导致崩溃
       if (!jsonData || !jsonData["data"] || !jsonData["data"]["info"]
           || !jsonData["data"]["info"]["images"]) {
         throw "章节图片数据为空";
@@ -493,13 +478,10 @@ class Goda extends ComicSource {
 
       let imagesList;
       if (typeof imagesRaw === "string") {
-        // v2 API：混淆字符串 — 解码还原为 JSON 数组
         imagesList = decodeChapterImages(imagesRaw);
       } else if (Array.isArray(imagesRaw)) {
-        // v1 API（向后兼容）：{url: "...", order: N} 数组
         imagesList = imagesRaw;
       } else {
-        // 未知格式的图片数据
         throw "未知的图片数据格式";
       }
 
@@ -512,33 +494,18 @@ class Goda extends ComicSource {
       return { images };
     },
 
-    // 是否启用标签翻译
     enableTagsTranslate: false,
 
-    // ========== 新增：链接解析功能 ==========
     link: {
-      /**
-       * 支持的域名列表（用于识别链接是否属于该源）
-       * 包含用户可能使用的所有域名（包括默认设置中的域名）
-       */
       domains: [
         'godamh.com',
         'www.godamh.com',
-        // 可以添加其他备用域名，但用户可通过设置自定义，这里仅列出默认值
       ],
-      /**
-       * 从 URL 中提取漫画 ID（即路径，如 /manga/123）
-       * @param {string} url - 完整的漫画详情页链接
-       * @returns {string|null} - 漫画 ID（含前导斜杠的路径），若无法解析则返回 null
-       */
       linkToId: (url) => {
-        // 匹配 /manga/ 后面的内容（包括数字、字母、短横线等）
         let match = url.match(/\/manga\/[^/?]+/);
         if (match) {
-          // 返回匹配到的完整路径（如 /manga/123）
           return match[0];
         }
-        // 尝试匹配 /manga-tag/ 等分类链接（但通常这些不是漫画详情页，可忽略）
         return null;
       }
     }

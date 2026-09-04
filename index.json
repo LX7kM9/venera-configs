@@ -133,6 +133,20 @@
         "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "Mangabz",
+        "fileName": "mangabz.js",
+        "key": "mangabz",
+        "version": "0.9.3",
+        "description": "非个人自制，修复漫画详情页报错问题，修复漫画不显示图片的问题（漫画一直不显示），修复发现页缺少内容的问题，新增分类页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "野蛮漫画",
+        "fileName": "yemancomic.js",
+        "key": "yemancomic",
+        "version": "0.3.6",
+        "description": "非个人自制，修复发现页1不显示内容的问题，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "MangaDex",
         "fileName": "manga_dex.js",
         "key": "manga_dex",
@@ -171,8 +185,8 @@
         "name": "GoDa漫画",
         "fileName": "goda.js",
         "key": "goda",
-        "version": "1.2.2",
-        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.2.4",
+        "description": "官方版本，去除发现页无用的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "18漫画",
