@@ -1,0 +1,93 @@
+[
+    {
+        "name": "漫蛙吧",
+        "fileName": "manwaba.js",
+        "key": "manwaba",
+        "version": "1.1.4",
+        "description":  "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "4KHD",
+        "fileName": "4khd.js",
+        "key": "fourkhd",
+        "version": "1.4.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "MangaForFree",
+        "fileName": "mangaforfree.js",
+        "key": "mangaforfree",
+        "version": "0.6.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "CosplayTele",
+        "fileName": "cosplaytele.js",
+        "key": "cosplaytele",
+        "version": "1.7.5",
+        "description": "非个人自制，修复漫画封面在历史记录不显示的问题，修复漫画详情页标题异常显示的问题，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "紳士漫畫",
+        "fileName": "wnacg.js",
+        "key": "wnacg",
+        "version": "1.0.6",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "18漫画",
+        "fileName": "mh18.js",
+        "key": "mh18",
+        "version": "1.0.1",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫小肆",
+        "fileName": "mxs.js",
+        "key": "mxs",
+        "version": "1.0.5",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "H-Comic",
+        "fileName": "hcomic.js",
+        "key": "hcomic",
+        "version": "1.0.2",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "禁漫天堂",
+        "fileName": "recode-jm.js",
+        "key": "jm",
+        "version": "1.8.6",
+        "description":  "二改，增加漫画详情页链接复制，分享链接可手动修改域名"
+    },
+    {
+        "name": "zero搬运网",
+        "fileName": "zero.js",
+        "key": "zerobyw",
+        "version": "1.2.0",
+        "description":  "增加获取最新链接，增加分类页金额发现页的翻页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "热辣漫画",
+        "fileName": "hot_manga.js",
+        "key": "hot_manga",
+        "version": "2.2.0",
+        "description":  "多账号登录优化（仅支持多收藏夹），支持自填写api和预置api，支持测速，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Komiic",
+        "fileName": "komiic.js",
+        "key": "Komiic",
+        "version": "1.8.3",
+        "description": "多账号登录优化（仅支持主账号收藏夹），双种网络收藏夹支持（喜爱+书柜），支持自填写api和预置api，优化功能触发后的反馈，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "Pixiv",
+        "fileName": "pixiv.js",
+        "key": "pixiv",
+        "version": "1.5.0",
+        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，目前无法攻破多账号问题和直连问题"
+    }
+]
