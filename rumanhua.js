@@ -1,11 +1,26 @@
 class RuManHua extends ComicSource {
     name = "如漫画"
     key = "rumanhua"
-    version = "1.2.7"   // 增加链接解析与复制链接
+    version = "2.0.9"   // 修复链接解析，支持 m. 子域名
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
+    // ===== 多域名切换设置 =====
     settings = {
+        base_url: {
+            title: "访问地址",
+            type: "select",
+            options: [
+                { value: "http://m.rumanhua2.com", text: "http://m.rumanhua2.com（默认，绕证书）" },
+                { value: "http://www.rumanhua2.com", text: "http://www.rumanhua2.com" },
+                { value: "https://m.rumanhua2.com", text: "https://m.rumanhua2.com（可能证书错误）" },
+                { value: "https://www.rumanhua2.com", text: "https://www.rumanhua2.com（可能证书错误）" },
+                { value: "http://m.rumanhua1.com", text: "http://m.rumanhua1.com（备用线路）" },
+                { value: "http://www.rumanhua1.com", text: "http://www.rumanhua1.com（备用线路）" },
+                { value: "https://www.rumanhua.org", text: "https://www.rumanhua.org（PC版，仅分类/详情可用）" },
+            ],
+            default: "http://m.rumanhua2.com",
+        },
         image_quality: {
             title: "图片质量",
             type: "select",
@@ -16,62 +31,168 @@ class RuManHua extends ComicSource {
         }
     }
 
-    toFormData(obj) {
-        return Object.keys(obj).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(obj[key])).join('&');
+    get baseUrl() {
+        return this.loadSetting("base_url") || "http://m.rumanhua2.com";
     }
 
+    // 通用请求头（含Referer）
+    _headers() {
+        return {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": this.baseUrl + "/",
+        };
+    }
+
+    // 带重定向跟随的GET
+    async _fetchBody(label, url) {
+        let res = await Network.get(url, this._headers());
+        if (res.status >= 300 && res.status < 400) {
+            let loc = res.headers && (res.headers["location"] || res.headers["Location"]);
+            if (loc) {
+                if (loc.startsWith("/")) loc = this.baseUrl + loc;
+                res = await Network.get(loc, this._headers());
+            }
+        }
+        if (res.status !== 200) throw label + " 请求失败: " + res.status;
+        return res.body;
+    }
+
+    // ===== 移动版通用解析函数 =====
+    parseComicAnchor(a) {
+        if (!a) return null;
+        let href = a.attributes["href"] || "";
+        let m = href.match(/\/([A-Za-z0-9]+)\/?$/);
+        if (!m) return null;
+        let id = m[1];
+
+        let img = a.querySelector("img");
+        let cover = "";
+        if (img) cover = img.attributes["data-src"] || img.attributes["src"] || "";
+
+        let title = "";
+        let h2 = a.querySelector("h2");
+        if (h2) title = h2.text.trim();
+        if (!title) {
+            let ct = a.querySelector(".card-title");
+            if (ct) title = ct.text.trim();
+        }
+        if (!title) title = a.attributes["title"] || id;
+
+        let sub = "";
+        let ps = a.querySelectorAll("p");
+        for (let p of ps) {
+            let t = p.text.trim();
+            if (!t) continue;
+            if (p.attributes && (p.attributes["class"] || "").indexOf("card-title") >= 0) continue;
+            sub = t;
+        }
+
+        if (!cover) return null;
+        return new Comic({ id: id, title: title, subTitle: sub, cover: cover });
+    }
+
+    // 从首页解析所有分区（供两个探索页共用）
+    async _parseHomeSections() {
+        let body = await this._fetchBody("home", this.baseUrl + "/");
+        let doc = new HtmlDocument(body);
+        let sections = [];
+        for (let sec of doc.querySelectorAll(".mults")) {
+            let head = sec.querySelector(".mult-head");
+            let title = head ? head.text.trim() : "推荐";
+            let comics = [];
+            let seen = {};
+            for (let a of sec.querySelectorAll(".mult-body li a")) {
+                let c = this.parseComicAnchor(a);
+                if (!c || seen[c.id]) continue;
+                seen[c.id] = true;
+                comics.push(c);
+            }
+            if (comics.length) {
+                sections.push({ title, comics });
+            }
+        }
+        doc.dispose();
+        return sections;
+    }
+
+    // ===== 探索页（两个视图，均基于移动版首页分区） =====
     explore = [
+        // 1. 原移动版多分区首页（展示所有分区）
         {
             title: "如漫画",
             type: "singlePageWithMultiPart",
             load: async () => {
                 try {
-                    const res = await Network.get("http://www.rumanhua2.com/", {});
-                    if (!res || !res.body) return {};
-                    const doc = new HtmlDocument(res.body);
-                    const sections = doc.querySelectorAll('.view-item');
-                    const result = {};
-                    for (const section of sections) {
-                        const head = section.querySelector('.item-title');
-                        if (!head) continue;
-                        const title = head.text.trim();
-                        const comics = [];
-                        const items = section.querySelectorAll('.col-auto');
-                        for (const item of items) {
-                            const a = item.querySelector('a');
-                            const img = item.querySelector('img');
-                            const titleEl = item.querySelector('.e-title');
-                            if (!a) continue;
-                            
-                            comics.push(new Comic({
-                                id: a.attributes.href.replace(/\//g, ''),
-                                title: titleEl ? titleEl.text.trim() : (a.attributes.title || ""),
-                                cover: img?.attributes['data-src'] || img?.attributes['data-original'] || img?.attributes.src || "",
-                                subTitle: item.querySelector('.tip')?.text.trim() || ""
-                            }));
-                        }
-                        if (comics.length > 0) {
-                            result[title] = comics;
-                        }
+                    let sections = await this._parseHomeSections();
+                    let result = {};
+                    for (let sec of sections) {
+                        result[sec.title] = sec.comics;
                     }
-                    doc.dispose();
+                    if (Object.keys(result).length === 0) result["首页"] = [];
                     return result;
                 } catch (e) {
                     return {};
                 }
             }
+        },
+        // 2. “最新更新”（取标题包含“最新”的分区，否则取最后一个分区）
+        {
+            title: "最新更新",
+            type: "singlePageWithMultiPart",
+            load: async () => {
+                try {
+                    let sections = await this._parseHomeSections();
+                    let target = null;
+                    // 优先找标题包含“最新”的
+                    for (let sec of sections) {
+                        if (sec.title.includes("最新")) {
+                            target = sec;
+                            break;
+                        }
+                    }
+                    if (!target && sections.length > 0) {
+                        target = sections[sections.length - 1]; // 取最后一个作为最新
+                    }
+                    let result = {};
+                    if (target) {
+                        result["最新更新"] = target.comics;
+                    } else {
+                        result["最新更新"] = [];
+                    }
+                    return result;
+                } catch (e) {
+                    return { "最新更新": [] };
+                }
+            }
         }
     ]
 
+    // ===== 分类与排行榜 =====
     category = {
         title: "如漫画",
         parts: [
             {
-                name: "题材",
+                name: "分类",
                 type: "fixed",
-                categories: ["冒险", "热血", "都市", "玄幻", "悬疑", "耽美", "恋爱", "生活", "搞笑", "穿越", "修真", "后宫", "女主", "古风", "连载", "完结"],
-                categoryParams: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
-                itemType: "category"
+                itemType: "category",
+                categories: [
+                    "冒险", "热血", "都市", "玄幻", "悬疑", "耽美", "恋爱", "生活",
+                    "搞笑", "穿越", "修真", "后宫", "女主", "古风", "连载", "完结",
+                ],
+                categoryParams: [
+                    "sort/1", "sort/2", "sort/3", "sort/4", "sort/5", "sort/6",
+                    "sort/7", "sort/8", "sort/9", "sort/10", "sort/11", "sort/12",
+                    "sort/13", "sort/14", "sort/15", "sort/16",
+                ],
+            },
+            {
+                name: "排行榜",
+                type: "fixed",
+                itemType: "category",
+                categories: ["精品榜", "人气榜", "推荐榜", "黑马榜", "最近更新", "新漫画"],
+                categoryParams: ["rank/1", "rank/2", "rank/3", "rank/4", "rank/5", "rank/6"],
             }
         ],
         enableRankingPage: false
@@ -79,128 +200,132 @@ class RuManHua extends ComicSource {
 
     categoryComics = {
         load: async (category, param, options, page) => {
+            if (!param) return { comics: [], maxPage: 1 };
             try {
-                const res = await Network.get(`http://www.rumanhua2.com/sort/${param}`, {});
-                if (!res || !res.body) return { comics: [], maxPage: page };
-                
-                const doc = new HtmlDocument(res.body);
-                const items = doc.querySelectorAll('.likedata');
-                const comics = [];
-                for (const item of items) {
-                    const a = item.querySelector('.likeimg a');
-                    const img = item.querySelector('img');
-                    const titleEl = item.querySelector('.le-t');
-                    if (!a) continue;
-                    
-                    comics.push(new Comic({
-                        id: a.attributes.href.replace(/\//g, ''),
-                        title: titleEl ? titleEl.text.trim() : (a.attributes.title || ""),
-                        cover: img?.attributes['data-src'] || img?.attributes['data-original'] || img?.attributes.src || "",
-                        subTitle: item.querySelector('.le-j')?.text.trim() || ""
-                    }));
-                }
-                doc.dispose();
-                return { comics: comics, maxPage: page };
-            } catch (e) {}
-            return { comics: [], maxPage: page };
+                let body = await this._fetchBody("category", this.baseUrl + "/" + param);
+                let comics = this.parseRankList(body);
+                return { comics: comics, maxPage: 1 };
+            } catch (e) {
+                return { comics: [], maxPage: 1 };
+            }
         }
     }
 
+    // 分类/排行榜的解析复用移动版解析函数
+    parseRankList(html) {
+        let doc = new HtmlDocument(html);
+        let comics = [];
+        let seen = {};
+        for (let li of doc.querySelectorAll(".rank-box .rank-list li")) {
+            let a = li.querySelector("a[href]");
+            let c = this.parseComicAnchor(a);
+            if (!c || seen[c.id]) continue;
+            seen[c.id] = true;
+            comics.push(c);
+        }
+        doc.dispose();
+        return comics;
+    }
+
+    // ===== 搜索 =====
     search = {
         load: async (keyword, options, page) => {
             try {
-                let res = await Network.post(`http://www.rumanhua2.com/s`, {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }, Convert.encodeUtf8(this.toFormData({ k: keyword })));
-                
-                if (res && res.body) {
-                    const doc = new HtmlDocument(res.body);
-                    const items = doc.querySelectorAll('.col-auto');
-                    const comics = [];
-                    for (const item of items) {
-                        const a = item.querySelector('a');
-                        const img = item.querySelector('img');
-                        const titleEl = item.querySelector('.e-title');
-                        if (!a) continue;
-                        
-                        comics.push(new Comic({
-                            id: a.attributes.href.replace(/\//g, ''),
-                            title: titleEl ? titleEl.text.trim() : (a.attributes.title || ""),
-                            cover: img?.attributes['data-src'] || img?.attributes['data-original'] || img?.attributes.src || "",
-                            subTitle: item.querySelector('.tip')?.text.trim() || ""
-                        }));
-                    }
-                    doc.dispose();
-                    return { comics: comics, maxPage: 1 };
-                }
-            } catch (e) {}
-            return { comics: [], maxPage: 1 };
-        }
+                let kw = encodeURIComponent(keyword);
+                let url = this.baseUrl + "/s?k=" + kw;
+                let body = await this._fetchBody("search", url);
+                let comics = this.parseSearchList(body);
+                return { comics: comics, maxPage: comics.length > 0 ? page : 1 };
+            } catch (e) {
+                return { comics: [], maxPage: 1 };
+            }
+        },
+        optionList: [],
+        enableTagsSuggestions: false,
     }
 
+    parseSearchList(html) {
+        let doc = new HtmlDocument(html);
+        let comics = [];
+        let seen = {};
+        const push = (c) => { if (c && !seen[c.id]) { seen[c.id] = true; comics.push(c); } };
+        for (let li of doc.querySelectorAll(".rank-box .rank-list li")) push(this.parseComicAnchor(li.querySelector("a[href]")));
+        for (let a of doc.querySelectorAll(".mults .mult-body li a")) push(this.parseComicAnchor(a));
+        doc.dispose();
+        return comics;
+    }
+
+    // ===== 单本漫画详情与章节解密 =====
     comic = {
         loadInfo: async (id) => {
             try {
-                const cleanId = id.replace(/\//g, '');
-                const res = await Network.get(`http://www.rumanhua2.com/${cleanId}/`, {});
-                if (!res || !res.body) throw "Empty response";
-                const doc = new HtmlDocument(res.body);
-                
-                const titleEl = doc.querySelector('h1.name') || doc.querySelector('h1');
-                const title = titleEl ? titleEl.text.trim() : "";
-                
-                const ogImage = doc.querySelector('meta[property="og:image"]');
-                const cover = ogImage ? ogImage.attributes.content : "";
-                
-                const descEl = doc.querySelector('.comic-intro') || doc.querySelector('.detail-desc');
-                const description = descEl ? descEl.text.trim() : "";
-                
-                const tags = {};
-                const tagEls = doc.querySelectorAll('.comic-info-detail a') || doc.querySelectorAll('.detail-info a');
-                if (tagEls.length > 0) {
-                    tags["标签"] = tagEls.map(el => el.text.trim());
+                let body = await this._fetchBody("detail", this.baseUrl + "/" + id + "/");
+                let doc = new HtmlDocument(body);
+
+                let title = "";
+                let nameEl = doc.querySelector(".book-name h1.name");
+                if (nameEl) title = nameEl.text.trim();
+                if (!title) {
+                    let og = doc.querySelector('meta[property="og:title"]');
+                    if (og) title = og.attributes["content"] || "";
+                }
+                if (!title) title = id;
+
+                let cover = "";
+                let coverImg = doc.querySelector(".book-cover img");
+                if (coverImg) cover = coverImg.attributes["data-src"] || coverImg.attributes["src"] || "";
+                if (!cover) {
+                    let og = doc.querySelector('meta[property="og:image"]');
+                    if (og) cover = og.attributes["content"] || "";
                 }
 
-                const chapters = new Map();
-                const chapterEls = doc.querySelectorAll('.chaplist-box ul li a') || doc.querySelectorAll('.view-ul li a');
-                for (const el of chapterEls) {
-                    const href = el.attributes.href;
-                    const chapterTitle = el.text.trim();
-                    if (href && href.includes('.html')) {
-                        chapters.set(href, chapterTitle);
-                    }
+                let author = "", status = "", update = "";
+                for (let p of doc.querySelectorAll(".comic-info-detail p")) {
+                    let t = p.text.trim();
+                    if (t.startsWith("作者：")) author = t.replace("作者：", "").trim();
+                    else if (t.startsWith("状态：")) status = t.replace("状态：", "").trim();
+                    else if (t.startsWith("更新：")) update = t.replace("更新：", "").trim();
                 }
 
-                const moreBtn = doc.querySelector('.chaplist-box button') || doc.querySelector('.chaplist-more');
-                if (moreBtn) {
-                    try {
-                        const moreRes = await Network.post(`http://www.rumanhua2.com/morechapter`, {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        }, Convert.encodeUtf8(this.toFormData({ id: cleanId })));
-                        if (moreRes && moreRes.body) {
-                            const moreRet = JSON.parse(moreRes.body);
-                            if (moreRet.code == "200") {
-                                for (const item of moreRet.data) {
-                                    const href = `/${cleanId}/${item.chapterid}.html`;
-                                    chapters.set(href, item.chaptername);
-                                }
-                            }
-                        }
-                    } catch (e) {}
+                let description = "";
+                let descEl = doc.querySelector(".cartoon-introduction p");
+                if (descEl) description = descEl.text.trim();
+
+                let tags = [];
+                for (let s of doc.querySelectorAll(".comic-tags span")) {
+                    let t = s.text.trim();
+                    if (t) tags.push(t);
+                }
+
+                let chapters = new Map();
+                for (let a of doc.querySelectorAll(".chaplist-box li a")) {
+                    let href = a.attributes["href"] || "";
+                    let m = href.match(/\/([A-Za-z0-9]+)\.html$/);
+                    if (!m) continue;
+                    let chTitle = a.text ? a.text.trim() : "";
+                    if (!chTitle) continue;
+                    chapters.set(m[1], chTitle);
                 }
 
                 doc.dispose();
+                if (chapters.size === 0) throw "未解析到章节列表";
 
-                // 构造详情页链接（用于复制链接）
-                const detailUrl = `http://www.rumanhua2.com/${cleanId}/`;
+                let tagMap = {};
+                if (author) tagMap["作者"] = [author];
+                if (status) tagMap["状态"] = [status];
+                if (update) tagMap["更新"] = [update];
+                if (tags.length) tagMap["标签"] = tags;
+
+                const detailUrl = this.baseUrl + "/" + id + "/";
 
                 return new ComicDetails({
                     title: title,
+                    subtitle: author,
                     cover: cover,
                     description: description,
-                    tags: tags,
+                    tags: tagMap,
                     chapters: chapters,
-                    url: detailUrl   // 右上角复制链接依赖此字段
+                    url: detailUrl
                 });
             } catch (e) {
                 return new ComicDetails({ title: "加载失败", chapters: new Map() });
@@ -208,164 +333,209 @@ class RuManHua extends ComicSource {
         },
 
         loadEp: async (comicId, epId) => {
-            try {
-                let rawEpId = String(epId ?? "").trim();
-                if (!rawEpId) return { images: [] };
-                rawEpId = rawEpId.replace(/&amp;/g, "&");
-                // 历史记录可能保存为完整 URL；只保留本站路径，避免拼接成 http://host/http://...
-                const absolutePath = rawEpId.match(/^https?:\/\/[^/]+(\/.*)$/i);
-                if (absolutePath) rawEpId = absolutePath[1];
-                try { rawEpId = decodeURIComponent(rawEpId); } catch (e) {}
-                rawEpId = rawEpId.split("#")[0];
-                rawEpId = rawEpId.replace(/^\/+/, "");
+            let url = this.baseUrl + "/" + comicId + "/" + epId + ".html";
+            let body = await this._fetchBody("ep", url);
+            let images = this.decryptChapterImages(body);
+            if (!images.length) throw "章节图片列表为空";
+            return { images: images };
+        },
 
-                // 某些历史数据只保存 vaMvECRF.html，此时用 comicId 补回漫画目录。
-                if (!rawEpId.includes("/") && comicId) {
-                    let rawComicId = String(comicId).trim().replace(/^\/+|\/+$/g, "");
-                    const comicPath = rawComicId.match(/^https?:\/\/[^/]+(\/.*)$/i);
-                    if (comicPath) rawComicId = comicPath[1].replace(/^\/+|\/+$/g, "");
-                    if (rawComicId && !rawComicId.includes("/")) rawEpId = `${rawComicId}/${rawEpId}`;
-                }
-                if (!rawEpId || rawEpId.includes("//") || /^https?:/i.test(rawEpId)) return { images: [] };
+        // 解密模块（XOR 解密）
+        decryptChapterImages(html) {
+            const expr = this._findPackedExpr(html);
+            if (!expr) throw new Error("未找到打包脚本(eval(function(p,a,c,k,e,d))");
+            const { p, a, c, k } = this._parsePackedArgs(expr);
+            const unpacked = this._unpack(p, a, c, k);
+            const mm = unpacked.match(/var\s+__c0rst96\s*=\s*"([^"]*)"/);
+            if (!mm) throw new Error("未找到 __c0rst96 加密数据");
+            const payload = mm[1];
 
-                const res = await Network.get(`http://www.rumanhua2.com/${rawEpId}`, {});
-                const body = String(res.body || "");
-                if (!body) return { images: [] };
+            const didM = html.match(/class="readerContainer"[^>]*data-id="(\d+)"/);
+            const dataId = didM ? parseInt(didM[1], 10) : 0;
+            const keys = ["smkhy258", "smkd95fv", "md496952", "cdcsdwq", "vbfsa256", "cawf151c", "cd56cvda", "8kihnt9", "dso15tlo", "5ko6plhy"];
+            const key = keys[dataId] || keys[0];
 
-                let encodedData = "";
-                let keyIndex = -1;
-                
-                const packedMatches = body.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\}\(([\s\S]+?)\)\)/g);
-                if (packedMatches) {
-                    for (const packed of packedMatches) {
-                        try {
-                            const unpacked = this.comic.unpackJS(packed);
-                            const dataMatch = unpacked.match(/__c0rst96\s*=\s*\\?["'](.*?)\\?["']/);
-                            if (dataMatch && dataMatch[1].length > 500) {
-                                encodedData = dataMatch[1].replace(/\\/g, '');
-                            }
-                            const keyMatch = unpacked.match(/_0x3d1d18\[(\d+)\]/);
-                            if (keyMatch) {
-                                keyIndex = parseInt(keyMatch[1]);
-                            }
-                        } catch (err) {}
+            const buf = this._base64ToBytes(payload);
+            const kb = [];
+            for (let i = 0; i < key.length; i++) kb.push(key.charCodeAt(i));
+            const xored = [];
+            for (let i = 0; i < buf.length; i++) xored.push(buf[i] ^ kb[i % kb.length]);
+            const latin1 = xored.map((b) => String.fromCharCode(b)).join("");
+            const jsonBytes = this._base64ToBytes(latin1);
+            const jsonStr = this._utf8BytesToString(jsonBytes);
+            const arr = JSON.parse(jsonStr);
+            if (!Array.isArray(arr)) throw new Error("解密结果不是数组");
+            return arr;
+        },
+
+        _findPackedExpr(html) {
+            const re = /<script[^>]*>([\s\S]*?)<\/script>/g;
+            let m;
+            while ((m = re.exec(html)) !== null) {
+                const txt = m[1];
+                const idx = txt.indexOf("eval(function(p,a,c,k,e,d)");
+                if (idx < 0) continue;
+                let depth = 0, inStr = false, quote = "", o = idx + 4, end = -1;
+                for (; o < txt.length; o++) {
+                    const ch = txt[o];
+                    if (inStr) {
+                        if (ch === "\\") { o++; continue; }
+                        if (ch === quote) inStr = false;
+                        continue;
                     }
+                    if (ch === '"' || ch === "'" || ch === "`") { inStr = true; quote = ch; continue; }
+                    if (ch === "(") depth++;
+                    else if (ch === ")" && --depth === 0) { end = o + 1; break; }
                 }
-
-                if (!encodedData) {
-                    const varMatch = body.match(/__c0rst96\s*=\s*["']([^"']+)["']/);
-                    if (varMatch && varMatch[1].length > 500) {
-                        encodedData = varMatch[1];
-                    }
-                }
-
-                const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-                const decode = (str) => {
-                    let output = [];
-                    let i = 0;
-                    while (i < str.length) {
-                        let enc1 = alphabet.indexOf(str.charAt(i++));
-                        let enc2 = alphabet.indexOf(str.charAt(i++));
-                        let enc3 = alphabet.indexOf(str.charAt(i++));
-                        let enc4 = alphabet.indexOf(str.charAt(i++));
-                        let res = (enc1 << 18) | (enc2 << 12) | (enc3 << 6) | enc4;
-                        output.push((res >> 16) & 0xff);
-                        if (enc3 !== 64 && enc3 !== -1) {
-                            output.push((res >> 8) & 0xff);
-                            if (enc4 !== 64 && enc4 !== -1) {
-                                output.push(res & 0xff);
-                            }
-                        }
-                    }
-                    return output;
-                };
-
-                const dataBytes = decode(encodedData);
-                const keys = ["smkhy258", "smkd95fv", "md496952", "cdcsdwq", "vbfsa256", "cawf151c", "cd56cvda", "8kihnt9", "dso15tlo", "5ko6plhy"];
-                
-                let tryIndices = [];
-                if (keyIndex !== -1) tryIndices.push(keyIndex);
-                const idMatch = body.match(/data-id\s*=\s*["'](\d+)["']/);
-                if (idMatch) tryIndices.push(parseInt(idMatch[1]));
-                for (let i = 0; i < keys.length; i++) {
-                    if (!tryIndices.includes(i)) tryIndices.push(i);
-                }
-
-                for (let idx of tryIndices) {
-                    const keyStr = keys[idx] || keys[0];
-                    let xored = new Uint8Array(dataBytes.length);
-                    for (let i = 0; i < dataBytes.length; i++) {
-                        xored[i] = dataBytes[i] ^ keyStr.charCodeAt(i % keyStr.length);
-                    }
-                    
-                    let xoredStr = "";
-                    for(let i=0; i<xored.length; i++) xoredStr += String.fromCharCode(xored[i]);
-                    
-                    const jsonBytes = decode(xoredStr);
-                    let jsonStr = "";
-                    try {
-                        const buffer = new Uint8Array(jsonBytes).buffer;
-                        jsonStr = Convert.decodeUtf8(buffer);
-                    } catch(e) {
-                        for(let i=0; i<jsonBytes.length; i++) jsonStr += String.fromCharCode(jsonBytes[i]);
-                    }
-                    
-                    if (jsonStr.includes("http")) {
-                        try {
-                            const images = JSON.parse(jsonStr);
-                            if (Array.isArray(images) && images.length > 0) {
-                                return { images: [...new Set(images)] };
-                            }
-                        } catch(e) {}
-                    }
-                }
-
-                const doc = new HtmlDocument(body);
-                const imgs = doc.querySelectorAll('.chapter-img-box img');
-                const images = [];
-                for (const img of imgs) {
-                    const src = img.attributes['data-src'] || img.attributes['data-original'] || img.attributes.src;
-                    if (src && src.startsWith('http')) images.push(src);
-                }
-                doc.dispose();
-                if (images.length > 0) return { images: [...new Set(images)] };
-
-                return { images: [] };
-
-            } catch (err) {
-                return { images: [] };
+                if (end > 0) return txt.slice(idx + 4, end).trim();
             }
+            return null;
         },
 
-        unpackJS: (packed) => {
-            try {
-                const match = packed.match(/}\('([\s\S]+?)',\s*(\d+),\s*(\d+),\s*'([\s\S]+?)'\.split\('\|'\)/);
-                if (!match) return packed;
-                let [_, p, a, c, k] = match;
-                a = parseInt(a); c = parseInt(c); k = k.split('|');
-                const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-                const d = {};
-                const e = (c) => (c < a ? '' : e(parseInt(c / a))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
-                while (c--) {
-                    const key = e(c);
-                    d[key] = k[c] || key;
+        _unquote(s) {
+            s = s.trim();
+            const q = s[0];
+            if ((q === '"' || q === "'" || q === "`") && s[s.length - 1] === q) return s.slice(1, -1);
+            return s;
+        },
+
+        _parseK(raw) {
+            raw = raw.trim();
+            const m = raw.match(/^["'`]([\s\S]*?)["'`]\s*\.\s*split\s*\(\s*["']([^"']*)["']\s*\)$/);
+            if (m) return m[1].split(m[2]);
+            const u = this._unquote(raw);
+            if (u !== raw) return u.split("|");
+            return raw.split("|");
+        },
+
+        _parsePackedArgs(expr) {
+            const bo = expr.indexOf("{");
+            if (bo < 0) throw new Error("packed: 找不到函数体");
+            let depth = 1, i = bo + 1;
+            for (; i < expr.length; i++) {
+                const ch = expr[i];
+                if (ch === "{") depth++;
+                else if (ch === "}" && --depth === 0) break;
+            }
+            const argsStr = expr.slice(i + 1).trim();
+            if (!argsStr.startsWith("(") || !argsStr.endsWith(")")) throw new Error("packed: 参数格式异常");
+            const inner = argsStr.slice(1, -1);
+            const parts = [];
+            let buf = "", d = 0, instr = false, q = "";
+            for (let j = 0; j < inner.length; j++) {
+                const ch = inner[j];
+                if (instr) {
+                    buf += ch;
+                    if (ch === "\\") { buf += inner[++j] || ""; continue; }
+                    if (ch === q) instr = false;
+                    continue;
                 }
-                return p.replace(/\b\w+\b/g, (w) => d[w] || w);
-            } catch (err) { return packed; }
+                if (ch === '"' || ch === "'" || ch === "`") { instr = true; q = ch; buf += ch; continue; }
+                if (ch === "(" || ch === "[" || ch === "{") d++;
+                else if (ch === ")" || ch === "]" || ch === "}") d--;
+                if (ch === "," && d === 0) { parts.push(buf); buf = ""; continue; }
+                buf += ch;
+            }
+            if (buf.length) parts.push(buf);
+            if (parts.length < 4) throw new Error("packed: 参数不足");
+            return {
+                p: this._unquote(parts[0].trim()),
+                a: parseInt(parts[1].trim(), 10),
+                c: parseInt(parts[2].trim(), 10),
+                k: this._parseK(parts[3].trim()),
+            };
         },
 
-        // ========== 新增：链接解析跳转 ==========
+        _base62sym(n, base) {
+            function e(r) {
+                const mm = r % base;
+                return (r < base ? "" : e(Math.floor(r / base))) +
+                    (mm > 35 ? String.fromCharCode(mm + 29) : mm.toString(36));
+            }
+            return e(n);
+        },
+
+        _unpack(p, a, c, k) {
+            const dict = Array.isArray(k) ? k : k.split("|");
+            let out = p;
+            for (let i = c - 1; i >= 0; i--) {
+                const token = dict[i];
+                if (!token) continue;
+                const sym = this._base62sym(i, a);
+                out = out.split(new RegExp("\\b" + sym + "\\b", "g")).join(token);
+            }
+            return out;
+        },
+
+        _base64ToBytes(b64) {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            b64 = String(b64).replace(/=+$/, "");
+            const bytes = [];
+            let buffer = 0, bits = 0;
+            for (let i = 0; i < b64.length; i++) {
+                const idx = chars.indexOf(b64[i]);
+                if (idx < 0) continue;
+                buffer = (buffer << 6) | idx;
+                bits += 6;
+                if (bits >= 8) { bits -= 8; bytes.push((buffer >> bits) & 0xff); }
+            }
+            return bytes;
+        },
+
+        _utf8BytesToString(bytes) {
+            let str = "";
+            for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+            return decodeURIComponent(escape(str));
+        },
+
+        // 图片防盗链
+        onImageLoad: (url) => {
+            return {
+                headers: {
+                    "Referer": this.baseUrl + "/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                }
+            };
+        },
+
+        onThumbnailLoad: (url) => {
+            return {
+                headers: {
+                    "Referer": this.baseUrl + "/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                }
+            };
+        },
+
+        // ===== 链接解析（支持多域名，包括 m. 子域名） =====
         link: {
             domains: [
-                'www.rumanhua2.com'
+                'rumanhua2.com',
+                'm.rumanhua2.com',
+                'www.rumanhua2.com',
+                'rumanhua.com',
+                'm.rumanhua.com',
+                'www.rumanhua.com',
+                'rumanhua1.com',
+                'm.rumanhua1.com',
+                'www.rumanhua1.com',
+                'rumanhua.org',
+                'www.rumanhua.org'
             ],
             linkToId: (url) => {
-                // 匹配 http://www.rumanhua2.com/数字/ 格式
-                const match = String(url || "").match(/https?:\/\/www\.rumanhua2\.com\/([^/]+)\/?/);
-                return match ? match[1] : null;
+                // 匹配任意子域名下的 /漫画ID/ 格式
+                let m = url.match(/https?:\/\/[^\/]+\/([A-Za-z0-9]+)(?:\/|$)/);
+                if (m) return m[1];
+                // 兼容 PC 版 /news/数字 格式
+                m = url.match(/\/news\/(\d+)/);
+                return m ? m[1] : null;
             }
         },
 
-        idMatch: "^[A-Za-z0-9]+$",   // ID 为数字或字母组合
+        idMatch: "^[A-Za-z0-9]+$",
     }
 }

@@ -5,7 +5,7 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.1.7";
+  version = "1.2.0";
 
   minAppVersion = "1.0.0";
 
@@ -39,14 +39,21 @@ class Baozi extends ComicSource {
       title: "图片资源站域名",
       type: "select",
       options: [
-        { value: "as-rsa1-usla.baozicdn.com" },
-        { value: "ascn-a3.bzcdn.net" },
-        { value: "asgb-a3.bzcdn.net" },
-        { value: "as.baozimh.com" },
-        { value: "s1.baozicdn.com" },
+        // ---------- 疑似失效的旧域名（排在最前面） ----------
+        { value: "as-rsa1-usla.baozicdn.com", text: "as-rsa1-usla.baozicdn.com（疑似失效）" },
+        { value: "ascn-a3.bzcdn.net", text: "ascn-a3.bzcdn.net（疑似失效）" },
+        { value: "asgb-a3.bzcdn.net", text: "asgb-a3.bzcdn.net（疑似失效）" },
+        { value: "s1.baozicdn.com", text: "s1.baozicdn.com（疑似失效）" },
+        // ---------- 有效且稳定的域名 ----------
+        { value: "as.baozimh.com", text: "as.baozimh.com" },
+        // ---------- 从 recode 搬运的有效新域名 ----------
+        { value: "as2.baozimh.com", text: "as2.baozimh.com" },
+        { value: "static-tw.bzmgcn.com", text: "static-tw.bzmgcn.com（仅原图）" },
+        { value: "static-tw.baozimh.com", text: "static-tw.baozimh.com（仅原图）" },
+        // ---------- 默认选项（空值）放在最底下 ----------
         { value: "", text: "默认" },
       ],
-      default: "",
+      default: "as.baozimh.com", // 与 recode 保持一致
     },
     image_quality: {
       title: "图片质量",
