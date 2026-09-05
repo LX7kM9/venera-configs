@@ -45,7 +45,7 @@
         "name": "如漫画",
         "fileName": "rumanhua.js",
         "key": "rumanhua",
-        "version": "2.0.9",
+        "version": "2.1.0",
         "description": "非个人自制，增加访问地址和图片质量，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -137,6 +137,13 @@
         "fileName": "sfacg_manhua.js",
         "key": "sfacg_manhua",
         "version": "1.0.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "咚漫",
+        "fileName": "dongman.js",
+        "key": "dongman",
+        "version": "1.0.7",
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {

@@ -1,7 +1,7 @@
 class RuManHua extends ComicSource {
     name = "如漫画"
     key = "rumanhua"
-    version = "2.0.9"   // 修复链接解析，支持 m. 子域名
+    version = "2.1.0"   // 新增异步加载更多章节功能
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
@@ -56,6 +56,25 @@ class RuManHua extends ComicSource {
             }
         }
         if (res.status !== 200) throw label + " 请求失败: " + res.status;
+        return res.body;
+    }
+
+    // 新增：POST 请求（用于异步加载更多章节）
+    async _postBody(label, url, data) {
+        const headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...this._headers()
+        };
+        const body = Object.keys(data).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(data[k])).join('&');
+        let res = await Network.post(url, headers, Convert.encodeUtf8(body));
+        if (res.status >= 300 && res.status < 400) {
+            let loc = res.headers && (res.headers["location"] || res.headers["Location"]);
+            if (loc) {
+                if (loc.startsWith("/")) loc = this.baseUrl + loc;
+                res = await Network.post(loc, headers, Convert.encodeUtf8(body));
+            }
+        }
+        if (res.status !== 200) throw label + " POST 请求失败: " + res.status;
         return res.body;
     }
 
@@ -145,7 +164,6 @@ class RuManHua extends ComicSource {
                 try {
                     let sections = await this._parseHomeSections();
                     let target = null;
-                    // 优先找标题包含“最新”的
                     for (let sec of sections) {
                         if (sec.title.includes("最新")) {
                             target = sec;
@@ -153,7 +171,7 @@ class RuManHua extends ComicSource {
                         }
                     }
                     if (!target && sections.length > 0) {
-                        target = sections[sections.length - 1]; // 取最后一个作为最新
+                        target = sections[sections.length - 1];
                     }
                     let result = {};
                     if (target) {
@@ -305,6 +323,31 @@ class RuManHua extends ComicSource {
                     let chTitle = a.text ? a.text.trim() : "";
                     if (!chTitle) continue;
                     chapters.set(m[1], chTitle);
+                }
+
+                // ===== 新增：异步加载更多章节 =====
+                const moreBtn = doc.querySelector(".chaplist-box button") || doc.querySelector(".chaplist-more");
+                if (moreBtn) {
+                    try {
+                        // 获取漫画ID（可能与传入的id一致）
+                        let comicId = id;
+                        // 如果id包含路径，提取纯ID
+                        let idMatch = String(id).match(/\/([A-Za-z0-9]+)$/);
+                        if (idMatch) comicId = idMatch[1];
+                        const moreResBody = await this._postBody("morechapter", this.baseUrl + "/morechapter", { id: comicId });
+                        const moreRet = JSON.parse(moreResBody);
+                        if (moreRet.code == "200" && Array.isArray(moreRet.data)) {
+                            for (const item of moreRet.data) {
+                                const chapterId = String(item.chapterid || "").trim();
+                                const chapterName = String(item.chaptername || "").trim();
+                                if (chapterId && chapterName && !chapters.has(chapterId)) {
+                                    chapters.set(chapterId, chapterName);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // 异步加载失败不影响已有章节
+                    }
                 }
 
                 doc.dispose();
@@ -527,10 +570,8 @@ class RuManHua extends ComicSource {
                 'www.rumanhua.org'
             ],
             linkToId: (url) => {
-                // 匹配任意子域名下的 /漫画ID/ 格式
                 let m = url.match(/https?:\/\/[^\/]+\/([A-Za-z0-9]+)(?:\/|$)/);
                 if (m) return m[1];
-                // 兼容 PC 版 /news/数字 格式
                 m = url.match(/\/news\/(\d+)/);
                 return m ? m[1] : null;
             }
