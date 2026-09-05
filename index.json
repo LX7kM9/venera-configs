@@ -185,8 +185,8 @@
         "name": "再漫画",
         "fileName": "zaimanhua.js",
         "key": "zaimanhua",
-        "version": "1.0.3",
-        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.2.6",
+        "description": "官方版本，增加末尾章节评论功能，并修复评论重复和无法发送评论，以及发送评论后无法即时刷新的问题，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "GoDa漫画",
