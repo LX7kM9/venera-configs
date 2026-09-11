@@ -1,7 +1,7 @@
 class DongManLa extends ComicSource {
     name = "动漫啦";
     key = "dongman_la";
-    version = "1.0.2";   // 增加链接解析与复制链接
+    version = "1.0.3";   // 章节列表反转为最老话在前
     minAppVersion = "1.0.0";
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dongman_la.js";
 
@@ -125,8 +125,6 @@ class DongManLa extends ComicSource {
 
     buildSearchUrl(keyword, page) {
         const query = encodeURIComponent(String(keyword || "").trim());
-        // 实测旧表单 URL 会先返回 302，再跳转到 /manhua/so/{关键词}/。
-        // Venera 网络层对 302 的处理可能因版本不同而异，因此直接请求最终路由。
         return this.baseUrl + "/manhua/so/" + query + "/";
     }
 
@@ -192,7 +190,6 @@ class DongManLa extends ComicSource {
             try {
                 const doc = await this.fetchDocument(this.buildSearchUrl(keyword, page));
                 const comics = this.parseList(doc);
-                // 当前真实搜索结果没有可用分页；不能用调用方 page 伪造 maxPage。
                 const maxPage = this.parseMaxPage(doc, 1);
                 doc.dispose();
                 return { comics, maxPage };
@@ -220,18 +217,29 @@ class DongManLa extends ComicSource {
                 if (category) tags["地区"] = [category];
                 if (statusText) tags["状态"] = [statusText === "1" ? "连载中" : statusText];
 
-                const chapters = new Map();
+                // 章节列表：页面按「最新 → 最老」排列
+                // 先按页面顺序收集，再反转，让最老话排在最前
+                const rawChapters = [];   // [[chapterId, title], ...] 保持原始顺序
+                const seenIds = new Set();
                 const chapterLinks = doc.querySelectorAll("#chapterList a[href*='/manhua/chapter/'], a[href*='/manhua/chapter/']");
                 for (const link of chapterLinks) {
                     const href = link.attributes.href || "";
                     const chapterId = this.parseChapterId(href);
-                    if (!chapterId) continue;
+                    if (!chapterId || seenIds.has(chapterId)) continue;
+                    seenIds.add(chapterId);
                     const chapterTitle = String(link.text || "").trim() || ("章节 " + chapterId);
+                    rawChapters.push([chapterId, chapterTitle]);
+                }
+
+                // ★ 反转顺序：最老话在前
+                const chapters = new Map();
+                for (let i = rawChapters.length - 1; i >= 0; i--) {
+                    const [chapterId, chapterTitle] = rawChapters[i];
                     chapters.set(chapterId, chapterTitle);
                 }
+
                 doc.dispose();
 
-                // 返回时添加 url 字段，使详情页菜单出现“复制链接”
                 return new ComicDetails({
                     title,
                     cover,
@@ -272,7 +280,6 @@ class DongManLa extends ComicSource {
         onImageLoad: (url) => ({ headers: this.defaultHeaders }),
         onThumbnailLoad: (url) => ({ headers: this.defaultHeaders }),
 
-        // ========== 新增：链接解析与复制链接支持 ==========
         link: {
             domains: ['www.dongman.la', 'dongman.la'],
             linkToId: (url) => {

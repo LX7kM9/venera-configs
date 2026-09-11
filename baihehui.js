@@ -8,7 +8,7 @@ class Baihehui extends ComicSource {
     // unique id of the source
     key = "baihehui"
 
-    version = "1.0.1"   // 增加链接解析与复制链接支持
+    version = "1.0.2"   // 搜索检测登录页
 
     minAppVersion = "1.4.0"
 
@@ -429,55 +429,63 @@ explore = [
          */
         load: async (keyword, options, page) => {
             let url = `https://www.yamibo.com/search/manga?SearchForm%5Bkeyword%5D=${encodeURIComponent(keyword)}&page=${page}`;
-    let res = await Network.get(url, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
-        }
-    });
+            let res = await Network.get(url, {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
+                }
+            });
 
-    if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-    }
+            if (res.status !== 200) {
+                throw `Invalid status code: ${res.status}`;
+            }
 
-    let document = new HtmlDocument(res.body);
-    // 获取最大页数
-    let lastPageElement = document.querySelector('li.last > a');
-    let maxPage = lastPageElement ? parseInt(lastPageElement.attributes['data-page']) + 1 : 1;
-    // 提取漫画列表
-    let mangaList = [];
-                // 获取所有漫画行
-                let rows = document.querySelectorAll('tr[data-key]');
-                rows.forEach(row => {
-                    // 提取信息
-                    let href = row.querySelector('a').attributes['href'];
-                    // 提取最后的数字作为 id
-                    let rawId = href.match(/\/manga\/(\d+)$/)[1];
-                    // 补零处理 - 确保id是3位数
-                    let id = rawId.padStart(3, '0');
-                    let title = row.querySelector('a').text;
+            // ★ 只加这一段：未登录时服务端会返回登录页（HTTP 200），
+            //   直接解析会"搜不出来"。这里显式检测并抛出清晰错误。
+            if (res.body.indexOf('id="login-form"') >= 0
+                || res.body.indexOf("登录 - 百合会") >= 0
+                || res.body.indexOf("/user/login") >= 0) {
+                throw "百合会搜索需要登录账号，请先在「我的」中登录百合会";
+            }
 
-                    // 获取更新时间作为描述
-                    let updateTime = row.querySelector('td:last-child').text.trim();
+            let document = new HtmlDocument(res.body);
+            // 获取最大页数
+            let lastPageElement = document.querySelector('li.last > a');
+            let maxPage = lastPageElement ? parseInt(lastPageElement.attributes['data-page']) + 1 : 1;
+            // 提取漫画列表
+            let mangaList = [];
+            // 获取所有漫画行
+            let rows = document.querySelectorAll('tr[data-key]');
+            rows.forEach(row => {
+                // 提取信息
+                let href = row.querySelector('a').attributes['href'];
+                // 提取最后的数字作为 id
+                let rawId = href.match(/\/manga\/(\d+)$/)[1];
+                // 补零处理 - 确保id是3位数
+                let id = rawId.padStart(3, '0');
+                let title = row.querySelector('a').text;
 
-                    // 构建封面 URL
-                    let cover = `https://www.yamibo.com/coverm/000/000/${id}.jpg`;
+                // 获取更新时间作为描述
+                let updateTime = row.querySelector('td:last-child').text.trim();
 
-                    // 构建漫画对象
-                    let manga = {
-                        id: id,
-                        title: title,
-                        cover: cover, // 使用有效封面或默认封面
-                        tags: [],
-                        description: `更新于: ${updateTime}`
-                    };
+                // 构建封面 URL
+                let cover = `https://www.yamibo.com/coverm/000/000/${id}.jpg`;
 
-                    mangaList.push(manga);
-                });
-
-                return {
-                    comics: mangaList,
-                    maxPage: maxPage // 从分页信息可以看出总共8页
+                // 构建漫画对象
+                let manga = {
+                    id: id,
+                    title: title,
+                    cover: cover, // 使用有效封面或默认封面
+                    tags: [],
+                    description: `更新于: ${updateTime}`
                 };
+
+                mangaList.push(manga);
+            });
+
+            return {
+                comics: mangaList,
+                maxPage: maxPage // 从分页信息可以看出总共8页
+            };
         },
 
         /**
@@ -669,7 +677,7 @@ explore = [
     };
         },
 
-        // ========== 新增：链接解析与复制链接支持 ==========
+        // ========== 链接解析与复制链接支持 ==========
         link: {
             domains: ['www.yamibo.com', 'yamibo.com'],
             linkToId: (url) => {

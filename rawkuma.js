@@ -1,7 +1,7 @@
 class Rawkuma extends ComicSource {
     name = "Rawkuma"
     key = "rawkuma"
-    version = "1.1.1"
+    version = "1.1.3"
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rawkuma.js"
     baseUrl = "https://rawkuma.net"
@@ -310,12 +310,42 @@ class Rawkuma extends ComicSource {
                 if (translated && !genres.includes(translated)) genres.push(translated);
             });
 
-            const chapters = new Map();
+            // ★ 章节列表修复：
+            //  1) 站点把「章节名 + 日期 + 浏览量 + 收藏数」全塞在同一个 <a> 里，
+            //     例如 chapter-8 的 a 里同时含 "Chapter 8"、"6 days ago"、"704"、"4"。
+            //     直接用 element.text 会拼成 "Chapter 87044" 这种，
+            //     所以只取文本以 "Chapter" 开头的那个 <span>。
+            //  2) 站点章节在页面上是「最新 → 最老」排列。
+            //     ComicDetails 里 chapters 按 Map 插入顺序展示，
+            //     所以先把章节收进数组，再反转后写入，让最老章排在最前面。
+            const rawChapters = [];
+            const seenHrefs = {};
             document.querySelectorAll('#chapter-list a[href*="/chapter-"]').forEach((element) => {
                 const href = this.absoluteUrl(element.attributes["href"]);
-                const name = String(element.text || "").trim() || href;
-                if (href && !chapters.has(href)) chapters.set(href, name);
+                if (!href || seenHrefs[href]) return;
+
+                let name = "";
+                const spans = element.querySelectorAll("span");
+                for (let i = 0; i < spans.length; i++) {
+                    const t = String(spans[i].text || "").trim();
+                    if (/^Chapter\b/i.test(t)) { name = t; break; }
+                }
+                if (!name) {
+                    // 兜底：从整段文本里抓 "Chapter X.Y"
+                    const m = String(element.text || "").match(/Chapter\s*\d+(?:\.\d+)?/i);
+                    if (m) name = m[0];
+                }
+                if (!name) name = href;
+
+                seenHrefs[href] = true;
+                rawChapters.push([href, name]);
             });
+
+            // ★ 页面顺序是「最新 → 最老」，反转后写入 Map，使最老章排在最前
+            const chapters = new Map();
+            for (let i = rawChapters.length - 1; i >= 0; i--) {
+                chapters.set(rawChapters[i][0], rawChapters[i][1]);
+            }
 
             return new ComicDetails({
                 title: title,

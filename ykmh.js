@@ -2,7 +2,7 @@
 class YKMHSource extends ComicSource {
     name = "优酷漫画"
     key = "ykmh"
-    version = "1.0.9"   // 改为 singlePageWithMultiPart，去掉无效的“查看更多”
+    version = "1.1.0"   // 章节列表反转为最老章在前
     minAppVersion = "1.4.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/ykmh.js"
 
@@ -38,7 +38,7 @@ class YKMHSource extends ComicSource {
         return finalUrl;
     }
 
-    // ==================== 探索页（改为 singlePageWithMultiPart） ====================
+    // ==================== 探索页 ====================
     explore = [
         {
             title: "优酷漫画",
@@ -69,21 +69,18 @@ class YKMHSource extends ComicSource {
                     }
                     return latestComics.slice(0, 15);
                 }
-                
-                // 生成两个板块
+
                 let parts = [
                     { title: "热门推荐", comics: parseHotCarousel(res.body) },
                     { title: "最新更新", comics: parseLatestComics(res.body) }
                 ];
-                
-                // 转换为对象（键为标题，值为漫画列表）
+
                 let result = {};
                 for (let part of parts) {
                     result[part.title] = part.comics;
                 }
                 return result;
             }
-            // 无需 loadNext
         }
     ]
 
@@ -194,8 +191,11 @@ class YKMHSource extends ComicSource {
                 }
                 return { title, cover: this._absoluteUrl(cover, "https://m.ykmh.net"), author, description, tags, status };
             }
+            // 站点 #chapter-list 默认是「最新 -> 最老」排列。
+            // 先按页面顺序收集到数组 rawList，再 reverse，最后写入 Map，
+            // 这样第一话就是最老章。
             const parseChapters = (html) => {
-                let allChaptersMap = new Map();
+                let rawList = [];
                 let chapterGroupsPattern = /<div class="comic-chapters">[\s\S]*?<span class="Title">([^<]+)<\/span>[\s\S]*?<ul id="chapter-list-(\d+)"[^>]*>([\s\S]*?)<\/ul>/g;
                 let groupMatch;
                 while ((groupMatch = chapterGroupsPattern.exec(html)) !== null) {
@@ -205,30 +205,35 @@ class YKMHSource extends ComicSource {
                     while ((chapterMatch = chapterPattern.exec(groupContent)) !== null) {
                         let url = this._absoluteUrl(chapterMatch[1], "https://m.ykmh.net");
                         let finalTitle = groupTitle !== "连载列表" ? `[${groupTitle}] ${chapterMatch[2].trim()}` : chapterMatch[2].trim();
-                        allChaptersMap.set(url, finalTitle);
+                        rawList.push([url, finalTitle]);
                     }
                 }
-                if (allChaptersMap.size === 0) {
+                if (rawList.length === 0) {
                     let match, allChapterPattern = /<li>\s*<a href="([^"]+)"[^>]*>\s*<span>([^<]+)<\/span>\s*<\/a>\s*<\/li>/g;
-                    while ((match = allChapterPattern.exec(html)) !== null) allChaptersMap.set(this._absoluteUrl(match[1], "https://m.ykmh.net"), match[2].trim());
+                    while ((match = allChapterPattern.exec(html)) !== null) rawList.push([this._absoluteUrl(match[1], "https://m.ykmh.net"), match[2].trim()]);
+                }
+                // 反转：最老章在前
+                rawList.reverse();
+                let allChaptersMap = new Map();
+                for (const [url, title] of rawList) {
+                    allChaptersMap.set(url, title);
                 }
                 return allChaptersMap;
             }
             let info = parseComicInfo(res.body), chapters = parseChapters(res.body);
-            let updateInfo = chapters.size > 0 ? `更新至：${Array.from(chapters.values())[0]}` : "暂无更新";
+            let updateInfo = chapters.size > 0 ? `更新至：${Array.from(chapters.values())[chapters.size - 1]}` : "暂无更新";
 
-            // ===== 修复：直接使用当前 URL 作为复制链接，替换域名为 PC 端 =====
             let detailUrl = targetUrl.replace('https://m.ykmh.net/', 'https://www.ykmh.net/');
             if (!detailUrl.endsWith('/')) detailUrl += '/';
 
-            return { 
-                title: info.title, 
-                cover: info.cover, 
-                description: info.description, 
-                tags: { "作者": [info.author], "状态": [info.status], "更新": [updateInfo], "标签": info.tags }, 
-                chapters: chapters, 
+            return {
+                title: info.title,
+                cover: info.cover,
+                description: info.description,
+                tags: { "作者": [info.author], "状态": [info.status], "更新": [updateInfo], "标签": info.tags },
+                chapters: chapters,
                 recommend: [],
-                url: detailUrl   // 修复：使用实际 URL，而非数字 ID
+                url: detailUrl
             };
         },
 
@@ -257,7 +262,7 @@ class YKMHSource extends ComicSource {
                     }
                 }
             }
-            
+
             let imageHeaders = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': url,
@@ -270,7 +275,7 @@ class YKMHSource extends ComicSource {
                 return img.includes('?') ? `${img}&v=${timestamp}` : `${img}?v=${timestamp}`;
             });
 
-            return { 
+            return {
                 images: finalImages,
                 headers: imageHeaders
             };
@@ -280,17 +285,13 @@ class YKMHSource extends ComicSource {
             throw "未支持此类Tag检索";
         },
 
-        // ===== 修复：链接解析支持英文路径 =====
         link: {
             domains: ["www.ykmh.net", "m.ykmh.net"],
             linkToId: (url) => {
-                // 匹配 /manhua/xxx/ 或 /manhua/xxx （英文路径）
                 const match = url.match(/\/manhua\/[^\/\?]+/);
-                if (match) return match[0];  // 返回相对路径，如 /manhua/DrSTONEshijiyuan
-                // 匹配 /book/数字（旧版可能）
+                if (match) return match[0];
                 const match2 = url.match(/\/book\/(\d+)/);
                 if (match2) return match2[1];
-                // 其他情况尝试匹配数字
                 const match3 = url.match(/\/(\d+)/);
                 return match3 ? match3[1] : null;
             }

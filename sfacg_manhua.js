@@ -1,7 +1,7 @@
 class SfacgManhua extends ComicSource {
     name = "SF漫画"
     key = "sfacg_manhua"
-    version = "1.0.1"
+    version = "1.0.2"   // 章节顺序反转：最老章在前
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/sfacg_manhua.js"
 
@@ -195,9 +195,9 @@ class SfacgManhua extends ComicSource {
     }
 
     comic = {
-        idMatch: "^[A-Za-z0-9_]+$",  // 新增：ID格式为字母数字下划线
+        idMatch: "^[A-Za-z0-9_]+$",
 
-        link: {  // 新增：链接解析
+        link: {
             domains: ["manhua.sfacg.com"],
             linkToId: (url) => {
                 let match = url.match(/^https?:\/\/manhua\.sfacg\.com\/mh\/([A-Za-z0-9_]+)/);
@@ -234,13 +234,19 @@ class SfacgManhua extends ComicSource {
                 if (genreM && genreM[1].trim()) tags["题材"] = [genreM[1].trim()]
                 if (statusM && statusM[1]) tags["状态"] = [statusM[1] === "连载中" ? "连载中" : "已完结"]
 
-                const eps = new Map()
+                // ★ 先收集成数组，反转后再插入 Map，让最老章排第一话
+                const items = []
                 for (const a of Array.from(doc.querySelectorAll(".comic_Serial_list a"))) {
                     const m = String(a.attributes.href || "").match(/\/(\d+)\/$/)
                     const t = a.text.trim()
                     if (m) {
-                        eps.set(m[1], t)
+                        items.push([m[1], t])
                     }
+                }
+                items.reverse()
+                const eps = new Map()
+                for (const [k, v] of items) {
+                    eps.set(k, v)
                 }
                 const chapters = new Map()
                 if (eps.size > 0) {
@@ -257,12 +263,13 @@ class SfacgManhua extends ComicSource {
                     tags: tags,
                     chapters: chapters,
                     subId: this.cidCache[id] || id,
-                    url: url   // 新增
+                    url: url
                 })
             } finally {
                 doc.dispose()
             }
         },
+
         loadEp: async (comicId, epId) => {
             let cid = this.cidCache[comicId]
             if (!cid) {

@@ -1,7 +1,7 @@
 class Dongmanmanhua extends ComicSource {
     name = "咚漫"
     key = "dongman"
-    version = "1.0.7"
+    version = "1.0.8"
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dongman.js"
 
@@ -35,7 +35,6 @@ class Dongmanmanhua extends ComicSource {
         u = String(u).trim()
         if (u.startsWith("//")) return "https:" + u
         if (u.startsWith("/")) return Dongmanmanhua.baseUrl + u
-        // 归一化: 站点 CDN 的 http 资源全部升级为 https, 避免 Android 明文流量拦截
         if (u.startsWith("http://") && u.indexOf("dongmanmanhua.cn") > 0) {
             u = "https://" + u.substring(7)
         }
@@ -47,7 +46,6 @@ class Dongmanmanhua extends ComicSource {
         return m ? m[1] : ""
     }
 
-    // 卡片解析: 首页/分类/搜索共用 li[data-title-no] > a.card_item 结构, 封面/标题字段一致
     parseCard(item) {
         if (!item) return null
         const link = item.querySelector("a.card_item")
@@ -90,7 +88,6 @@ class Dongmanmanhua extends ComicSource {
                 try {
                     const res2 = {}
                     res2["新作推荐"] = this.parseComicList(doc, "#hotAndNew ul.card_lst li[data-title-no]")
-                    // 星期分区: 标签与卡片列表按顺序一一对应(已取证 7 x 9)
                     const tabs = Array.from(doc.querySelectorAll("#dailyTab li[data-weekday]"))
                     const lists = Array.from(doc.querySelectorAll("#weekdayList > ul.card_lst"))
                     for (let i = 0; i < tabs.length && i < lists.length; i++) {
@@ -123,13 +120,11 @@ class Dongmanmanhua extends ComicSource {
 
     categoryComics = {
         load: async (category, param, options, page) => {
-            // 分类页为单页全量(已取证 2419 张卡片), 无分页控件 => maxPage=1
             const res = await Network.get(Dongmanmanhua.baseUrl + "/genre", this.headers())
             if (res.status !== 200) {
                 throw `Invalid status code: ${res.status}`
             }
             const html = res.body
-            // 定位目标题材区块: h2.sub_title[data-genre=PARAM] 之后到下一个 h2.sub_title 之前的 ul.card_lst
             const genreRe = new RegExp('<h2[^>]*class="sub_title[^"]*"[^>]*data-genre="' + param + '"')
             const start = html.search(genreRe)
             if (start < 0) {
@@ -152,7 +147,6 @@ class Dongmanmanhua extends ComicSource {
 
     search = {
         load: async (keyword, options, page) => {
-            // 作者搜索: 详情页作者链接真实格式为 /search?searchMode=AUTHOR&keyword=...
             let isAuthor = false
             let kw = keyword
             if (keyword.startsWith("作者:")) {
@@ -168,7 +162,7 @@ class Dongmanmanhua extends ComicSource {
             try {
                 return {
                     comics: this.parseComicList(doc, ".card_wrap.search li[data-title-no]"),
-                    maxPage: 1 // 已实测 page=2 与 page=1 返回相同结果, 服务端为单页
+                    maxPage: 1
                 }
             } finally {
                 doc.dispose()
@@ -177,9 +171,9 @@ class Dongmanmanhua extends ComicSource {
     }
 
     comic = {
-        idMatch: "^\\d+$",  // 新增：ID格式为纯数字
+        idMatch: "^\\d+$",
 
-        link: {  // 新增：链接解析
+        link: {
             domains: ["www.dongmanmanhua.cn"],
             linkToId: (url) => {
                 let match = url.match(/[?&]titleNo=(\d+)/);
@@ -191,7 +185,6 @@ class Dongmanmanhua extends ComicSource {
         },
 
         loadInfo: async (id) => {
-            // /episodeList?titleNo= 会 302 到规范详情页(已取证)
             const res = await Network.get(`${Dongmanmanhua.baseUrl}/episodeList?titleNo=${encodeURIComponent(id)}`, this.headers())
             if (res.status !== 200) {
                 throw `Invalid status code: ${res.status}`
@@ -205,7 +198,6 @@ class Dongmanmanhua extends ComicSource {
                 const authorEls = header ? Array.from(header.querySelectorAll("span.author")) : []
                 const descEl = doc.querySelector('meta[name="description"]')
                 const description = descEl && descEl.attributes.content ? descEl.attributes.content.trim() : ""
-                // 封面优先方形图: og:image(510x510, 全站统一) -> twitter:image -> 详情背景图 -> 详情头横幅(加resize缩小)
                 let cover = ""
                 const og = doc.querySelector('meta[property="og:image"]')
                 if (og && og.attributes.content) {
@@ -229,7 +221,6 @@ class Dongmanmanhua extends ComicSource {
                 if (!cover) {
                     if (coverImg) {
                         cover = this.absoluteUrl(coverImg.attributes.src || "")
-                        // 横幅图补 resize 参数缩小体积
                         if (cover && cover.indexOf("x-oss-process=") < 0) {
                             cover += (cover.indexOf("?") < 0 ? "?" : "&") + "x-oss-process=image/resize,w_400,limit_0"
                         }
@@ -247,20 +238,27 @@ class Dongmanmanhua extends ComicSource {
                     tags["题材"] = genreEl.text.trim().split(/\s+/).filter(Boolean)
                 }
 
-                const chapters = new Map()
-                const eps = new Map()
+                // 站点 #_listUl 默认是「最新 → 最老」排列。
+                // 先按页面顺序收集成数组，再反转，最后写入 Map，
+                // 让最老章排在第一话。
+                const rawEps = []
                 for (const li of Array.from(doc.querySelectorAll("#_listUl li[data-episode-no]"))) {
                     const epId = li.attributes["data-episode-no"]
                     const epTitle = li.querySelector(".subj")
                     if (epId) {
-                        eps.set(epId, epTitle ? epTitle.text.trim() : `第${epId}话`)
+                        rawEps.push([epId, epTitle ? epTitle.text.trim() : `第${epId}话`])
                     }
                 }
+                rawEps.reverse()
+                const eps = new Map()
+                for (const [epId, epTitle] of rawEps) {
+                    eps.set(epId, epTitle)
+                }
+                const chapters = new Map()
                 if (eps.size > 0) {
                     chapters.set("章节", eps)
                 }
 
-                // 构造详情页 URL（用于复制链接）
                 const url = `${Dongmanmanhua.baseUrl}/episodeList?titleNo=${id}`;
 
                 return new ComicDetails({
@@ -270,14 +268,14 @@ class Dongmanmanhua extends ComicSource {
                     tags: tags,
                     chapters: chapters,
                     subId: id,
-                    url: url   // 新增
+                    url: url
                 })
             } finally {
                 doc.dispose()
             }
         },
+
         loadEp: async (comicId, epId) => {
-            // 短地址 /viewer?titleNo=&episodeNo= 已取证可 302 到规范阅读页
             const url = `${Dongmanmanhua.baseUrl}/viewer?titleNo=${encodeURIComponent(comicId)}&episodeNo=${encodeURIComponent(epId)}`
             const res = await Network.get(url, this.headers())
             if (res.status !== 200) {
@@ -295,7 +293,7 @@ class Dongmanmanhua extends ComicSource {
                 doc.dispose()
             }
         },
-        // 章节图片请求配置: Venera 解析器接的是 comic.onImageLoad (类方法不会被调用)
+
         onImageLoad: (imageKey, cid, eid) => {
             return {
                 headers: {
@@ -305,7 +303,7 @@ class Dongmanmanhua extends ComicSource {
                 }
             }
         },
-        // 封面缩略图请求配置: Venera 解析器接的是 comic.onThumbnailLoad
+
         onThumbnailLoad: (imageKey) => {
             return {
                 headers: {

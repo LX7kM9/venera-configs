@@ -1,23 +1,19 @@
 class RuManHua extends ComicSource {
     name = "如漫画"
     key = "rumanhua"
-    version = "2.1.0"   // 新增异步加载更多章节功能
+    version = "2.4.1"   // 动态解析 tool.js 获取搜索接口，缓存 1 小时
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
-    // ===== 多域名切换设置 =====
     settings = {
         base_url: {
             title: "访问地址",
             type: "select",
             options: [
-                { value: "http://m.rumanhua2.com", text: "http://m.rumanhua2.com（默认，绕证书）" },
+                { value: "http://m.rumanhua2.com", text: "http://m.rumanhua2.com（默认，稳定）" },
                 { value: "http://www.rumanhua2.com", text: "http://www.rumanhua2.com" },
-                { value: "https://m.rumanhua2.com", text: "https://m.rumanhua2.com（可能证书错误）" },
-                { value: "https://www.rumanhua2.com", text: "https://www.rumanhua2.com（可能证书错误）" },
                 { value: "http://m.rumanhua1.com", text: "http://m.rumanhua1.com（备用线路）" },
                 { value: "http://www.rumanhua1.com", text: "http://www.rumanhua1.com（备用线路）" },
-                { value: "https://www.rumanhua.org", text: "https://www.rumanhua.org（PC版，仅分类/详情可用）" },
             ],
             default: "http://m.rumanhua2.com",
         },
@@ -35,7 +31,6 @@ class RuManHua extends ComicSource {
         return this.loadSetting("base_url") || "http://m.rumanhua2.com";
     }
 
-    // 通用请求头（含Referer）
     _headers() {
         return {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
@@ -45,7 +40,6 @@ class RuManHua extends ComicSource {
         };
     }
 
-    // 带重定向跟随的GET
     async _fetchBody(label, url) {
         let res = await Network.get(url, this._headers());
         if (res.status >= 300 && res.status < 400) {
@@ -59,7 +53,6 @@ class RuManHua extends ComicSource {
         return res.body;
     }
 
-    // 新增：POST 请求（用于异步加载更多章节）
     async _postBody(label, url, data) {
         const headers = {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -78,7 +71,81 @@ class RuManHua extends ComicSource {
         return res.body;
     }
 
-    // ===== 移动版通用解析函数 =====
+    // ===== 动态解析搜索接口 =====
+    // 从 /static/js/tool.js 的 get_search_data() 里提取真实的 URL、方法、参数名。
+    // 结果缓存 1 小时；解析失败时使用默认值（当前站点可用：POST /s + k）
+    async _resolveSearchApi() {
+        const now = Date.now();
+        if (this._searchApi && this._searchApiExpire && now < this._searchApiExpire) {
+            return this._searchApi;
+        }
+
+        // 默认值（站点当前已确认可用）
+        let api = { method: "POST", path: "/s", param: "k", source: "default" };
+
+        try {
+            // 从首页找 tool.js 的带版本号 URL（如 /static/js/tool.js?v=171200013）
+            let toolUrl = this.baseUrl + "/static/js/tool.js";
+            try {
+                const homeBody = await this._fetchBody("home", this.baseUrl + "/");
+                const m = homeBody.match(/\/static\/js\/tool\.js\?v=[0-9]+/);
+                if (m) toolUrl = this.baseUrl + m[0];
+            } catch (e) {}
+
+            const js = await this._fetchBody("tool.js", toolUrl);
+
+            // 定位 get_search_data 函数体
+            const idx = js.indexOf("function get_search_data");
+            if (idx >= 0) {
+                const seg = js.slice(idx, idx + 8000);
+
+                // 优先匹配 $.post("/s", { k: k })
+                let mm = seg.match(/\$\.post\(\s*["']([^"']+)["']\s*,\s*\{([^}]*)\}\s*\)/);
+                if (mm) {
+                    api.method = "POST";
+                    api.path = mm[1];
+                    const pm = mm[2].match(/([a-zA-Z_$][\w$]*)\s*:/);
+                    if (pm) api.param = pm[1];
+                    api.source = "tool.js:$.post";
+                } else {
+                    // 匹配 $.get("...url...")
+                    mm = seg.match(/\$\.get\(\s*["']([^"']+)["']/);
+                    if (mm) {
+                        api.method = "GET";
+                        api.path = mm[1];
+                        const qm = mm[1].match(/[?&]([a-zA-Z_$][\w$]*)=/);
+                        if (qm) api.param = qm[1];
+                        api.source = "tool.js:$.get";
+                    } else {
+                        // 匹配 $.ajax({ url: "...", type: "...", data: { k: ... } })
+                        mm = seg.match(/\$\.ajax\(\s*\{([\s\S]{0,800}?)\}\s*\)/);
+                        if (mm) {
+                            const block = mm[1];
+                            const um = block.match(/url\s*:\s*["']([^"']+)["']/);
+                            const tm = block.match(/type\s*:\s*["']([^"']+)["']/i);
+                            const dm = block.match(/data\s*:\s*\{([^}]*)\}/);
+                            if (um) {
+                                api.method = (tm ? tm[1] : "POST").toUpperCase();
+                                api.path = um[1];
+                                if (dm) {
+                                    const pm = dm[1].match(/([a-zA-Z_$][\w$]*)\s*:/);
+                                    if (pm) api.param = pm[1];
+                                }
+                                api.source = "tool.js:$.ajax";
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // 解析失败，使用默认值
+        }
+
+        this._searchApi = api;
+        this._searchApiExpire = now + 60 * 60 * 1000;
+        return api;
+    }
+
     parseComicAnchor(a) {
         if (!a) return null;
         let href = a.attributes["href"] || "";
@@ -112,7 +179,6 @@ class RuManHua extends ComicSource {
         return new Comic({ id: id, title: title, subTitle: sub, cover: cover });
     }
 
-    // 从首页解析所有分区（供两个探索页共用）
     async _parseHomeSections() {
         let body = await this._fetchBody("home", this.baseUrl + "/");
         let doc = new HtmlDocument(body);
@@ -136,9 +202,7 @@ class RuManHua extends ComicSource {
         return sections;
     }
 
-    // ===== 探索页（两个视图，均基于移动版首页分区） =====
     explore = [
-        // 1. 原移动版多分区首页（展示所有分区）
         {
             title: "如漫画",
             type: "singlePageWithMultiPart",
@@ -156,7 +220,6 @@ class RuManHua extends ComicSource {
                 }
             }
         },
-        // 2. “最新更新”（取标题包含“最新”的分区，否则取最后一个分区）
         {
             title: "最新更新",
             type: "singlePageWithMultiPart",
@@ -187,7 +250,6 @@ class RuManHua extends ComicSource {
         }
     ]
 
-    // ===== 分类与排行榜 =====
     category = {
         title: "如漫画",
         parts: [
@@ -229,7 +291,6 @@ class RuManHua extends ComicSource {
         }
     }
 
-    // 分类/排行榜的解析复用移动版解析函数
     parseRankList(html) {
         let doc = new HtmlDocument(html);
         let comics = [];
@@ -241,39 +302,92 @@ class RuManHua extends ComicSource {
             seen[c.id] = true;
             comics.push(c);
         }
+        for (let li of doc.querySelectorAll(".manga-list li, .rank-list li")) {
+            let a = li.querySelector("a[href]");
+            let c = this.parseComicAnchor(a);
+            if (!c || seen[c.id]) continue;
+            seen[c.id] = true;
+            comics.push(c);
+        }
         doc.dispose();
         return comics;
     }
 
-    // ===== 搜索 =====
+    // ===== 搜索：动态解析接口 + JSON 解析 =====
     search = {
         load: async (keyword, options, page) => {
+            const kw = String(keyword || "").trim();
+            if (kw.length <= 0) throw "请输入你想搜索的内容";
+            if (kw.length == 1) throw "搜索漫画不能小于2个字哦";
+            if (kw.length > 12) throw "搜索漫画不能大于12个字哦";
+
+            // 动态解析接口（带缓存）
+            const api = await this._resolveSearchApi();
+
+            const headers = {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Referer": this.baseUrl + "/",
+            };
+
+            const paramStr = api.param + "=" + encodeURIComponent(kw);
+            let res;
+
+            if (api.method === "GET") {
+                let url = this.baseUrl + api.path;
+                url += (url.indexOf("?") >= 0 ? "&" : "?") + paramStr;
+                res = await Network.get(url, headers);
+            } else {
+                const postHeaders = {
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    ...headers
+                };
+                res = await Network.post(this.baseUrl + api.path, postHeaders, Convert.encodeUtf8(paramStr));
+            }
+
+            if (res.status !== 200) {
+                throw "如漫画搜索请求失败: HTTP " + res.status;
+            }
+
+            let ret;
             try {
-                let kw = encodeURIComponent(keyword);
-                let url = this.baseUrl + "/s?k=" + kw;
-                let body = await this._fetchBody("search", url);
-                let comics = this.parseSearchList(body);
-                return { comics: comics, maxPage: comics.length > 0 ? page : 1 };
+                ret = JSON.parse(res.body);
             } catch (e) {
+                throw "如漫画搜索响应无法解析（非 JSON）";
+            }
+
+            if (!ret || ret.code === "-1") {
+                throw "如漫画搜索失败: " + (ret && ret.msg ? ret.msg : "未知错误");
+            }
+            if (ret.code === "201") {
                 return { comics: [], maxPage: 1 };
             }
+            if (ret.code !== "200") {
+                return { comics: [], maxPage: 1 };
+            }
+
+            const list = Array.isArray(ret.data) ? ret.data : [];
+            const comics = [];
+            const seen = {};
+            for (const item of list) {
+                const id = String(item.id || "").trim();
+                if (!id || seen[id]) continue;
+                seen[id] = true;
+                comics.push(new Comic({
+                    id: id,
+                    title: String(item.name || id),
+                    cover: String(item.imgurl || ""),
+                    subTitle: String(item.remarks || ""),
+                }));
+            }
+            return { comics: comics, maxPage: 1 };
         },
         optionList: [],
         enableTagsSuggestions: false,
     }
 
-    parseSearchList(html) {
-        let doc = new HtmlDocument(html);
-        let comics = [];
-        let seen = {};
-        const push = (c) => { if (c && !seen[c.id]) { seen[c.id] = true; comics.push(c); } };
-        for (let li of doc.querySelectorAll(".rank-box .rank-list li")) push(this.parseComicAnchor(li.querySelector("a[href]")));
-        for (let a of doc.querySelectorAll(".mults .mult-body li a")) push(this.parseComicAnchor(a));
-        doc.dispose();
-        return comics;
-    }
-
-    // ===== 单本漫画详情与章节解密 =====
     comic = {
         loadInfo: async (id) => {
             try {
@@ -315,23 +429,25 @@ class RuManHua extends ComicSource {
                     if (t) tags.push(t);
                 }
 
-                let chapters = new Map();
+                const rawChapters = [];
+                const seenIds = new Set();
+
                 for (let a of doc.querySelectorAll(".chaplist-box li a")) {
                     let href = a.attributes["href"] || "";
                     let m = href.match(/\/([A-Za-z0-9]+)\.html$/);
                     if (!m) continue;
+                    let chapterId = m[1];
+                    if (seenIds.has(chapterId)) continue;
                     let chTitle = a.text ? a.text.trim() : "";
                     if (!chTitle) continue;
-                    chapters.set(m[1], chTitle);
+                    seenIds.add(chapterId);
+                    rawChapters.push([chapterId, chTitle]);
                 }
 
-                // ===== 新增：异步加载更多章节 =====
                 const moreBtn = doc.querySelector(".chaplist-box button") || doc.querySelector(".chaplist-more");
                 if (moreBtn) {
                     try {
-                        // 获取漫画ID（可能与传入的id一致）
                         let comicId = id;
-                        // 如果id包含路径，提取纯ID
                         let idMatch = String(id).match(/\/([A-Za-z0-9]+)$/);
                         if (idMatch) comicId = idMatch[1];
                         const moreResBody = await this._postBody("morechapter", this.baseUrl + "/morechapter", { id: comicId });
@@ -340,14 +456,21 @@ class RuManHua extends ComicSource {
                             for (const item of moreRet.data) {
                                 const chapterId = String(item.chapterid || "").trim();
                                 const chapterName = String(item.chaptername || "").trim();
-                                if (chapterId && chapterName && !chapters.has(chapterId)) {
-                                    chapters.set(chapterId, chapterName);
+                                if (chapterId && chapterName && !seenIds.has(chapterId)) {
+                                    seenIds.add(chapterId);
+                                    rawChapters.push([chapterId, chapterName]);
                                 }
                             }
                         }
                     } catch (e) {
                         // 异步加载失败不影响已有章节
                     }
+                }
+
+                let chapters = new Map();
+                for (let i = rawChapters.length - 1; i >= 0; i--) {
+                    const [cid, ct] = rawChapters[i];
+                    chapters.set(cid, ct);
                 }
 
                 doc.dispose();
@@ -371,19 +494,18 @@ class RuManHua extends ComicSource {
                     url: detailUrl
                 });
             } catch (e) {
-                return new ComicDetails({ title: "加载失败", chapters: new Map() });
+                throw e;
             }
         },
 
         loadEp: async (comicId, epId) => {
             let url = this.baseUrl + "/" + comicId + "/" + epId + ".html";
             let body = await this._fetchBody("ep", url);
-            let images = this.decryptChapterImages(body);
+            let images = this.comic.decryptChapterImages(body);
             if (!images.length) throw "章节图片列表为空";
             return { images: images };
         },
 
-        // 解密模块（XOR 解密）
         decryptChapterImages(html) {
             const expr = this._findPackedExpr(html);
             if (!expr) throw new Error("未找到打包脚本(eval(function(p,a,c,k,e,d))");
@@ -531,7 +653,6 @@ class RuManHua extends ComicSource {
             return decodeURIComponent(escape(str));
         },
 
-        // 图片防盗链
         onImageLoad: (url) => {
             return {
                 headers: {
@@ -554,7 +675,6 @@ class RuManHua extends ComicSource {
             };
         },
 
-        // ===== 链接解析（支持多域名，包括 m. 子域名） =====
         link: {
             domains: [
                 'rumanhua2.com',

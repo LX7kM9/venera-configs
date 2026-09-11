@@ -1,52 +1,25 @@
-/** @type {import('./_venera_.js')} */
-
-/**
- * 嗶哩漫畫 (www.bilimanga.net)
- *
- * 圖片本身是明文 AVIF（i.motiezw.com），沒有加密。
- * 但閱讀頁服務器會根據請求頭判斷是否為"移動端瀏覽器"：
- * 必須帶上 sec-ch-ua-mobile: ?1 等移動端 Client Hints 才會返回圖片 <img> 標籤，
- * 否則只返回"章節不支持桌面電腦端瀏覽器顯示"的佔位符。
- *
- * 頁面結構（移動版）：
- * - 首頁 "/"：多個 .book-li 卡片（a[href="/detail/{id}.html"] + img data-src + .book-title）
- * - 詳情頁 "/detail/{id}.html"：.book-title / .book-cover / .authorname / .tag-small / #bookSummary
- * - 目錄頁 "/read/{id}/catalog"：li.chapter-li a[href*="/read/"] 全部章節
- * - 閱讀頁 "/read/{mangaid}/{chapterid}.html"：#acontentz 下的 img data-src（motiezw.com）
- * - 分類 "/filter/"：標籤 tagid 1..51，分頁 /filter/lastupdate_{tagid}_0_0_0_0_0_0_{page}_0_0_0.html
- * - 搜索 "/search.html"（站點有反爬 guard，非瀏覽器環境可能返回空）
- */
-
 class BiliManga extends ComicSource {
   name = "哔哩漫画";
   key = "bilimanga";
-  version = "1.2.1"; // 修复：loadInfo 返回 url 以支持复制链接
+  version = "1.4.0"; // 搜索失败提示引导用户使用链接解析
   minAppVersion = "1.6.0";
 
-  // 更新链接，请替换为你自己的托管地址
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/bilimanga.js";
 
   get baseUrl() {
     return "https://www.bilimanga.net";
   }
 
-  // 關鍵：帶移動端 Client Hints + night=0 cookie，閱讀頁才會返回圖片
   pageHeaders() {
     return {
       "User-Agent":
-        "Mozilla/5.0 (Linux; Android 10; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-      "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-      "sec-ch-ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
-      "sec-ch-ua-mobile": "?1",
-      "sec-ch-ua-platform": '"Android"',
+        "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Referer": "https://www.bilimanga.net/",
     };
   }
 
   init() {
-    // 阅读页必须带 night=0 cookie 才返回图片；通过引擎 cookie 罐保存，
-    // 避免手动 Cookie 头覆盖后续 WebView 登录产生的登录 cookie。
     try {
       Network.setCookies(this.baseUrl, [
         new Cookie({ name: "night", value: "0", domain: "www.bilimanga.net" }),
@@ -54,7 +27,6 @@ class BiliManga extends ComicSource {
     } catch (e) {}
   }
 
-  // 账号登录（登录页有 Cloudflare 人机验证，必须走 WebView 真实浏览器）
   account = {
     loginWithWebview: {
       url: "https://www.bilimanga.net/login.php",
@@ -82,9 +54,109 @@ class BiliManga extends ComicSource {
     return res.body;
   }
 
-  // 解析 .book-li 漫画卡片
+  _abs(url) {
+    if (!url) return "";
+    let s = String(url);
+    if (s.startsWith("//")) return "https:" + s;
+    if (s.startsWith("/")) return "https://www.bilimanga.net" + s;
+    if (!/^https?:/i.test(s)) return "https://www.bilimanga.net/" + s;
+    return s;
+  }
+
+  // ===== search_guard 处理 =====
+  // 参考站点 search.html 页面里的脚本：
+  //   css.href = "/search.html?search_guard=0"  ← 先加载 CSS
+  //   js.src   = "/search.html?search_guard=2"  ← 再加载 JS
+  // 我们按相同顺序、相同 Sec-Fetch 头模拟浏览器资源加载。
+  async _runSearchGuard() {
+    if (this._guardExpire && Date.now() < this._guardExpire) return;
+
+    let t = Date.now();
+
+    // 1) 请求 search_guard=0（模拟 CSS 加载）
+    try {
+      await Network.get(this.baseUrl + "/search.html?search_guard=0&_t=" + t, {
+        ...this.pageHeaders(),
+        "Accept": "text/css,*/*;q=0.1",
+        "Sec-Fetch-Dest": "style",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-origin",
+      });
+    } catch (e) {}
+
+    // 2) 请求 search_guard=2（模拟 JS 加载）
+    let js = "";
+    try {
+      let res = await Network.get(
+        this.baseUrl + "/search.html?search_guard=2&_t=" + (t + 1),
+        {
+          ...this.pageHeaders(),
+          "Accept": "*/*",
+          "Sec-Fetch-Dest": "script",
+          "Sec-Fetch-Mode": "no-cors",
+          "Sec-Fetch-Site": "same-origin",
+        }
+      );
+      if (res.status === 200) js = res.body || "";
+    } catch (e) {}
+
+    if (!js || js.length > 20000) return;
+
+    let unesc = (s) => String(s).replace(/\\\//g, "/");
+
+    // 解析 document.cookie = "..."
+    let name = null, value = null, maxAge = 3600;
+    let cm = js.match(/document\.cookie\s*=\s*["']([^"']+)["']/);
+    if (cm) {
+      let raw = unesc(cm[1]);
+      let firstSeg = raw.split(";")[0];
+      let eq = firstSeg.indexOf("=");
+      if (eq > 0) {
+        name = firstSeg.slice(0, eq).trim();
+        value = firstSeg.slice(eq + 1).trim();
+      }
+      let ma = raw.match(/max-age\s*=\s*(\d+)/i);
+      if (ma) maxAge = parseInt(ma[1], 10);
+    }
+    if (!name || !value) return;
+
+    Network.setCookies(this.baseUrl, [
+      new Cookie({
+        name: name,
+        value: value,
+        domain: "www.bilimanga.net",
+        path: "/",
+      }),
+    ]);
+
+    // 解析 redeem 路径并请求一次
+    let redeemPath = null;
+    let rm = js.match(
+      /\.open\s*\(\s*["'](?:GET|POST)["']\s*,\s*["']([^"']+)["']/i
+    );
+    if (rm) redeemPath = unesc(rm[1]);
+    if (!redeemPath) {
+      rm = js.match(/["']([^"']*search_guard=redeem[^"']*)["']/);
+      if (rm) redeemPath = unesc(rm[1]);
+    }
+    if (!redeemPath) redeemPath = "/search.html?search_guard=redeem&r=";
+
+    try {
+      await Network.get(this.baseUrl + redeemPath + Date.now(), {
+        ...this.pageHeaders(),
+        "Accept": "*/*",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+      });
+    } catch (e) {}
+
+    this._guardExpire = Date.now() + Math.max(60, maxAge - 60) * 1000;
+  }
+
   parseBookLi(el) {
-    let a = el.querySelector('a[href*="/detail/"]');
+    if (!el) return null;
+    let a = el.querySelector('a[href*="/detail/"]') || el.querySelector("a[href]");
     if (!a) return null;
     let href = a.attributes["href"] || "";
     let m = href.match(/\/detail\/(\d+)\.html/);
@@ -93,15 +165,13 @@ class BiliManga extends ComicSource {
 
     let img = el.querySelector("img");
     let cover = img
-      ? img.attributes["data-src"] || img.attributes["src"] || ""
+      ? this._abs(img.attributes["data-src"] || img.attributes["src"] || "")
       : "";
-    let title = img
-      ? img.attributes["alt"] || ""
-      : "";
-    if (!title) {
-      let titleEl = el.querySelector(".book-title");
-      if (titleEl) title = titleEl.text.trim();
-    }
+
+    let title = "";
+    let titleEl = el.querySelector(".book-title");
+    if (titleEl) title = titleEl.text.trim();
+    if (!title && img) title = img.attributes["alt"] || "";
     if (!title) title = id;
 
     let subTitle = "";
@@ -116,7 +186,6 @@ class BiliManga extends ComicSource {
     });
   }
 
-  // 解析页面上所有 .book-li
   parseBookList(html) {
     let doc = new HtmlDocument(html);
     let seen = {};
@@ -131,7 +200,6 @@ class BiliManga extends ComicSource {
     return comics;
   }
 
-  // 从分页链接中提取最大页数
   extractMaxPage(html, fallback) {
     let doc = new HtmlDocument(html);
     let max = 1;
@@ -147,7 +215,6 @@ class BiliManga extends ComicSource {
     return max > 1 ? max : fallback;
   }
 
-  // 发现页
   explore = [
     {
       title: "嗶哩漫畫-最近更新",
@@ -204,7 +271,6 @@ class BiliManga extends ComicSource {
     },
   ];
 
-  // 分类页
   category = {
     title: "嗶哩漫畫",
     parts: [
@@ -235,7 +301,6 @@ class BiliManga extends ComicSource {
     enableRankingPage: false,
   };
 
-  // 分类漫画加载
   categoryComics = {
     load: async (category, param, options, page) => {
       let tagid = param || "0";
@@ -245,7 +310,10 @@ class BiliManga extends ComicSource {
 
       let body = await this.fetchBody("categoryComics", url);
       let comics = this.parseBookList(body);
-      let maxPage = this.extractMaxPage(body, comics.length > 0 ? page : 1);
+      let maxPage = this.extractMaxPage(
+        body,
+        comics.length > 0 ? page : 1
+      );
       if (maxPage < 1) maxPage = 1;
 
       return { comics: comics, maxPage: maxPage };
@@ -253,14 +321,46 @@ class BiliManga extends ComicSource {
     optionList: [],
   };
 
-  // 搜索（站点有 guard，非浏览器环境可能返回空结果）
+  // 搜索：先跑 search_guard=0 → search_guard=2，再 POST
   search = {
     load: async (keyword, options, page) => {
       let kw = encodeURIComponent(keyword);
-      let body = await this.fetchBody(
-        "search",
-        `${this.baseUrl}/search.html?key=${kw}`
+
+      // 第一步：执行守卫流程
+      try {
+        await this._runSearchGuard();
+      } catch (e) {}
+
+      // 第二步：POST 搜索，全套 Sec-Fetch 头模拟导航请求
+      let res = await Network.post(
+        this.baseUrl + "/search.html",
+        {
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Origin": this.baseUrl,
+          "Referer": this.baseUrl + "/search.html",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "same-origin",
+          "Sec-Fetch-User": "?1",
+          "Upgrade-Insecure-Requests": "1",
+        },
+        "searchkey=" + kw
       );
+
+      if (res.status !== 200) {
+        throw "搜索请求失败: HTTP " + res.status;
+      }
+
+      let body = res.body || "";
+      if (body.length < 500 || body.indexOf(".book-li") === -1) {
+        throw "搜索被源站拒绝（返回空页面）。站点要求通过完整的浏览器环境执行搜索守卫 JS，当前 Venera 环境无法满足。建议网页搜索好漫画后复制链接在 Venera 内解析查看。";
+      }
+
       let comics = this.parseBookList(body);
       return { comics: comics, maxPage: 1 };
     },
@@ -268,18 +368,18 @@ class BiliManga extends ComicSource {
     enableTagsSuggestions: false,
   };
 
-  // 单本漫画
   comic = {
-    // 用于校验 ID 格式（纯数字）
     idMatch: "^\\d+$",
 
-    // 获取漫画详情页链接（供复制分享）
     getShareLink: (id) => {
       return `https://www.bilimanga.net/detail/${id}.html`;
     },
 
     loadInfo: async (id) => {
-      let detail = await this.fetchBody("detail", this.baseUrl + "/detail/" + id + ".html");
+      let detail = await this.fetchBody(
+        "detail",
+        this.baseUrl + "/detail/" + id + ".html"
+      );
       let doc = new HtmlDocument(detail);
 
       let title = "";
@@ -287,10 +387,21 @@ class BiliManga extends ComicSource {
       if (titleEl) title = titleEl.text.trim();
 
       let cover = "";
-      let coverImg = doc.querySelector(".book-cover");
+      let coverImg =
+        doc.querySelector("img.book-cover") ||
+        doc.querySelector(".module-item-cover img") ||
+        doc.querySelector("#bookDetailWrapper img.book-cover");
       if (coverImg) {
-        cover = coverImg.attributes["src"] || coverImg.attributes["data-src"] || "";
+        cover =
+          coverImg.attributes["data-src"] ||
+          coverImg.attributes["src"] ||
+          "";
       }
+      if (!cover) {
+        let og = doc.querySelector('meta[property="og:image"]');
+        if (og) cover = og.attributes["content"] || "";
+      }
+      cover = this._abs(cover);
 
       let authors = [];
       for (let a of doc.querySelectorAll(".authorname a, .illname a")) {
@@ -299,7 +410,9 @@ class BiliManga extends ComicSource {
       }
 
       let tags = [];
-      for (let a of doc.querySelectorAll(".tag-small-group.origin-left a.tag-small")) {
+      for (let a of doc.querySelectorAll(
+        ".tag-small-group.origin-left a.tag-small"
+      )) {
         let t = a.text ? a.text.trim() : "";
         if (t) tags.push(t);
       }
@@ -309,7 +422,6 @@ class BiliManga extends ComicSource {
       if (summary) description = summary.text.trim();
       doc.dispose();
 
-      // 章節目錄
       let chapters = new Map();
       let catalog = await this.fetchBody(
         "catalog",
@@ -332,7 +444,6 @@ class BiliManga extends ComicSource {
       if (authors.length) tagMap["作者"] = authors;
       if (tags.length) tagMap["標籤"] = tags;
 
-      // 构造详情页链接（供复制分享）
       const shareUrl = `https://www.bilimanga.net/detail/${id}.html`;
 
       return new ComicDetails({
@@ -341,7 +452,7 @@ class BiliManga extends ComicSource {
         description: description,
         tags: tagMap,
         chapters: chapters,
-        url: shareUrl, // <-- 关键：应用通过此字段提供复制链接功能
+        url: shareUrl,
       });
     },
 
@@ -368,39 +479,50 @@ class BiliManga extends ComicSource {
     },
 
     onImageLoad: (url) => {
+      let abs = url || "";
+      if (abs) {
+        if (abs.startsWith("//")) abs = "https:" + abs;
+        else if (abs.startsWith("/")) abs = "https://www.bilimanga.net" + abs;
+        else if (!/^https?:/i.test(abs))
+          abs = "https://www.bilimanga.net/" + abs;
+      }
       return {
-        url: url,
+        url: abs,
         headers: {
           Referer: "https://www.bilimanga.net/",
           "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
           Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         },
       };
     },
 
     onThumbnailLoad: (url) => {
+      let abs = url || "";
+      if (abs) {
+        if (abs.startsWith("//")) abs = "https:" + abs;
+        else if (abs.startsWith("/")) abs = "https://www.bilimanga.net" + abs;
+        else if (!/^https?:/i.test(abs))
+          abs = "https://www.bilimanga.net/" + abs;
+      }
       return {
-        url: url,
+        url: abs,
         headers: {
           Referer: "https://www.bilimanga.net/",
           "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
           Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         },
       };
     },
 
-    // 链接解析：支持详情页和阅读页，提取漫画 ID
     link: {
       domains: ["bilimanga.net", "www.bilimanga.net"],
       linkToId: (url) => {
-        // 尝试匹配详情页 /detail/{id}.html
         let m = url.match(/\/detail\/(\d+)\.html/);
         if (m) return m[1];
-        // 尝试匹配阅读页 /read/{comicId}/{epId}.html
         m = url.match(/\/read\/(\d+)\/\d+\.html/);
         return m ? m[1] : null;
       },

@@ -1,7 +1,7 @@
 class Mh4399 extends ComicSource {
     name = "4399漫画网"
     key = "mh4399"
-    version = "1.0.4"
+    version = "1.0.5"   // 修复搜索：POST 显式指定 x-www-form-urlencoded
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/mh4399.js"
 
@@ -17,7 +17,6 @@ class Mh4399 extends ComicSource {
             "User-Agent": ua || Mh4399.userAgent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9",
-            "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
@@ -215,22 +214,29 @@ class Mh4399 extends ComicSource {
         }
     }
 
+    // ★ 修复：显式指定 Content-Type 为 x-www-form-urlencoded
+    //   否则 Venera 默认 application/json，ASP.NET 服务端解析不到 keywords 字段，
+    //   返回标题为《》查询_的空结果页。
     search = {
         load: async (keyword, options, page) => {
-            // 桌面UA的POST返回空结果页, 必须用移动UA
+            const searchHeaders = {
+                ...this.headers(Mh4399.mobileUA),
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            }
+            const searchBody = "keywords=" + encodeURIComponent(keyword)
+
             const res = await Network.post(
                 `${Mh4399.baseUrl}/search2.html`,
-                this.headers(Mh4399.mobileUA),
-                "keywords=" + encodeURIComponent(keyword)
+                searchHeaders,
+                searchBody
             )
-            // 搜索403时退避重试
             if (res.status === 403 || res.status >= 500) {
                 for (let i = 0; i < 2; i++) {
                     await new Promise((resolve) => setTimeout(resolve, 2000 * (i + 1)))
                     const retry = await Network.post(
                         `${Mh4399.baseUrl}/search2.html`,
-                        this.headers(Mh4399.mobileUA),
-                        "keywords=" + encodeURIComponent(keyword)
+                        searchHeaders,
+                        searchBody
                     )
                     if (retry.status === 200) {
                         const doc2 = new HtmlDocument(retry.body)
@@ -259,9 +265,9 @@ class Mh4399 extends ComicSource {
     }
 
     comic = {
-        idMatch: "^\\d+$",  // 新增：ID格式为纯数字
+        idMatch: "^\\d+$",
 
-        link: {  // 新增：链接解析
+        link: {
             domains: ["www.4399manhua.com"],
             linkToId: (url) => {
                 let match = url.match(/^https?:\/\/www\.4399manhua\.com\/(\d+)/);
@@ -309,7 +315,6 @@ class Mh4399 extends ComicSource {
                     chapters.set("章节", eps)
                 }
 
-                // 构造详情页 URL（用于复制链接）
                 const url = `${Mh4399.baseUrl}/${id}/`;
 
                 return new ComicDetails({
@@ -319,12 +324,13 @@ class Mh4399 extends ComicSource {
                     tags: tags,
                     chapters: chapters,
                     subId: id,
-                    url: url   // 新增
+                    url: url
                 })
             } finally {
                 doc.dispose()
             }
         },
+
         loadEp: async (comicId, epId) => {
             // 必须移动UA: 桌面UA的阅读页只有占位图(/xj.png)
             const res = await this.requestPage(
@@ -345,8 +351,7 @@ class Mh4399 extends ComicSource {
                 doc.dispose()
             }
         },
-        // 章节图片请求配置: Venera 解析器接的是 comic.onImageLoad (类方法 getImageLoadingConfig 不会被调用)
-        // oub CDN 只放行完整 iPhone 移动 UA, 桌面UA/venera UA 一律403
+
         onImageLoad: (imageKey, comicId, ep) => {
             const headers = {
                 "User-Agent": Mh4399.mobileUA,
@@ -366,7 +371,7 @@ class Mh4399 extends ComicSource {
                 }
             }
         },
-        // 封面缩略图请求配置: Venera 解析器接的是 comic.onThumbnailLoad
+
         onThumbnailLoad: (imageKey) => {
             return {
                 headers: {

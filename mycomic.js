@@ -177,11 +177,11 @@ class MyComic extends ComicSource {
 
     key = "mycomic";
 
-    version = "1.1.0";
+    version = "1.1.1";
 
     minAppVersion = "1.4.6";
 
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@mycomic.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/mycomic.js";
 
     init() {
         // Check if cf_clearance cookie exists; if not, the user may need to "login"
@@ -203,37 +203,26 @@ class MyComic extends ComicSource {
     // ==================== Account (Cloudflare bypass) ====================
 
     account = {
-        // Method 1: WebView login - opens mycomic.com in a real browser engine
-        // The browser will automatically solve Cloudflare's JS challenge,
-        // and the resulting cf_clearance cookie will be stored for Network requests.
         loginWithWebview: {
             url: "https://mycomic.com/cn",
             checkStatus: (url, title) => {
-                // Cloudflare challenge page has title "Just a moment..." or similar
-                // After the challenge is passed, the real site loads
                 if (!url || !title) return false;
                 if (title.indexOf("moment") !== -1) return false;
                 if (title.indexOf("Cloudflare") !== -1) return false;
                 if (title.indexOf("challenge") !== -1) return false;
-                // Success: we're on the actual mycomic.com page
                 if (url.indexOf("mycomic.com") !== -1) return true;
                 return false;
             },
             onLoginSuccess: () => {
-                // Cookies from WebView should be synced with Network API automatically.
-                // Log for debugging.
                 const cookies = Network.getCookies("https://mycomic.com");
                 console.log("[MyComic] Login success. Cookies: " + (cookies ? cookies.length : 0));
             },
         },
 
-        // Method 2: Manual cookie input - user can paste cf_clearance value
-        // obtained from their browser's dev tools
         loginWithCookies: {
             fields: ["cf_clearance"],
             validate: async (values) => {
                 if (!values || !values[0]) return false;
-                // Set the cf_clearance cookie
                 Network.setCookies("https://mycomic.com", [
                     new Cookie({
                         name: "cf_clearance",
@@ -241,7 +230,6 @@ class MyComic extends ComicSource {
                         domain: ".mycomic.com",
                     }),
                 ]);
-                // Validate by trying to fetch the homepage
                 try {
                     const resp = await Network.get(
                         "https://mycomic.com/cn",
@@ -395,7 +383,6 @@ class MyComic extends ComicSource {
         load: async (category, param, options, page) => {
             if (!page) page = 1;
 
-            // Parse filter type and value from param (format: "type:value")
             let filterType = null;
             let filterValue = null;
             let sort = "-id";
@@ -408,7 +395,6 @@ class MyComic extends ComicSource {
                 }
             }
 
-            // Get sort option
             if (options && options.length > 0 && options[0]) {
                 sort = options[0];
             }
@@ -511,7 +497,6 @@ class MyComic extends ComicSource {
             const html = resp.body;
             const doc = new HtmlDocument(html);
 
-            // Parse meta tags
             let title = getMetaContent(html, "og:title") || id;
             title = title.replace(/\s*-\s*MYCOMIC.*$/, "").trim();
 
@@ -522,7 +507,6 @@ class MyComic extends ComicSource {
                 CDN_URL + "/comics/" + id + ".jpg";
             const keywords = getMetaContent(html, "keywords") || "";
 
-            // Parse tags from filter links on the page
             const tags = new Map();
             const tagLinks = doc.querySelectorAll(
                 "a[href*='filter%5Btag%5D']"
@@ -534,14 +518,12 @@ class MyComic extends ComicSource {
             });
             if (tagNames.length) tags.set("类型", tagNames);
 
-            // Parse additional info from keywords
             const keywordList = keywords
                 .split(",")
                 .map((s) => s.trim())
                 .filter(Boolean);
             if (author) tags.set("作者", [author]);
 
-            // Try to extract country and audience from keywords
             const countryMap = {
                 日本: "日本",
                 内地: "内地",
@@ -566,32 +548,40 @@ class MyComic extends ComicSource {
             if (countries.length) tags.set("地区", countries);
             if (audiences.length) tags.set("受众", audiences);
 
-            // Parse chapter list from Alpine.js x-data
-            // The x-data attribute contains: chapters: [{"id":96338,"title":"第16回"}, ...]
-            const chapters = new Map();
+            // Site returns chapters as newest-first.
+            // Collect into array, reverse, then build Map so oldest is first.
+            const rawList = [];
             const chapterMatch = /chapters:\s*(\[[\s\S]*?\])/.exec(html);
             if (chapterMatch) {
                 try {
                     const chapterList = JSON.parse(chapterMatch[1]);
                     chapterList.forEach((ch) => {
-                        chapters.set(String(ch.id), ch.title);
+                        rawList.push([String(ch.id), ch.title]);
                     });
                 } catch (e) {
-                    // Fallback: try to find chapter links in the page
                     const chapterLinks = doc.querySelectorAll(
                         "a[href*='/cn/chapters/']"
                     );
+                    const seen = new Set();
                     chapterLinks.forEach((a) => {
                         const href = a.attributes["href"] || "";
                         const m = /\/cn\/chapters\/(\d+)/.exec(href);
-                        if (m) {
+                        if (m && !seen.has(m[1])) {
                             const chTitle = a.text.trim();
-                            if (chTitle && !chapters.has(m[1])) {
-                                chapters.set(m[1], chTitle);
+                            if (chTitle) {
+                                seen.add(m[1]);
+                                rawList.push([m[1], chTitle]);
                             }
                         }
                     });
                 }
+            }
+
+            // Reverse so oldest chapter comes first
+            rawList.reverse();
+            const chapters = new Map();
+            for (const [chId, chTitle] of rawList) {
+                chapters.set(chId, chTitle);
             }
 
             return new ComicDetails({
@@ -615,7 +605,6 @@ class MyComic extends ComicSource {
             if (resp.status !== 200) throw "HTTP " + resp.status;
 
             const doc = new HtmlDocument(resp.body);
-            // Chapter images have class "page" and src or data-src from biccam.com/chapters/
             const imgs = doc.querySelectorAll("img.page");
             const images = [];
 
@@ -631,7 +620,6 @@ class MyComic extends ComicSource {
                 });
             }
 
-            // Fallback: find all imgs with src containing biccam.com/chapters/
             if (images.length === 0) {
                 const allImgs = doc.querySelectorAll("img");
                 allImgs.forEach((img) => {
