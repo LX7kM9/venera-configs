@@ -1,7 +1,7 @@
 class BiliManga extends ComicSource {
   name = "哔哩漫画";
   key = "bilimanga";
-  version = "1.4.0"; // 搜索失败提示引导用户使用链接解析
+  version = "1.5.0"; // 合并无括号版的移动端 Client Hints 与扩展分类
   minAppVersion = "1.6.0";
 
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/bilimanga.js";
@@ -10,12 +10,18 @@ class BiliManga extends ComicSource {
     return "https://www.bilimanga.net";
   }
 
+  // 合并：保留有括号版的 Referer/搜索守卫，加入无括号版的移动端 Client Hints。
   pageHeaders() {
     return {
       "User-Agent":
-        "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
       "Referer": "https://www.bilimanga.net/",
+      "sec-ch-ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
+      "sec-ch-ua-mobile": "?1",
+      "sec-ch-ua-platform": '"Android"',
     };
   }
 
@@ -64,16 +70,12 @@ class BiliManga extends ComicSource {
   }
 
   // ===== search_guard 处理 =====
-  // 参考站点 search.html 页面里的脚本：
-  //   css.href = "/search.html?search_guard=0"  ← 先加载 CSS
-  //   js.src   = "/search.html?search_guard=2"  ← 再加载 JS
-  // 我们按相同顺序、相同 Sec-Fetch 头模拟浏览器资源加载。
+  // 保留有括号版的完整搜索守卫流程。
   async _runSearchGuard() {
     if (this._guardExpire && Date.now() < this._guardExpire) return;
 
     let t = Date.now();
 
-    // 1) 请求 search_guard=0（模拟 CSS 加载）
     try {
       await Network.get(this.baseUrl + "/search.html?search_guard=0&_t=" + t, {
         ...this.pageHeaders(),
@@ -84,7 +86,6 @@ class BiliManga extends ComicSource {
       });
     } catch (e) {}
 
-    // 2) 请求 search_guard=2（模拟 JS 加载）
     let js = "";
     try {
       let res = await Network.get(
@@ -104,7 +105,6 @@ class BiliManga extends ComicSource {
 
     let unesc = (s) => String(s).replace(/\\\//g, "/");
 
-    // 解析 document.cookie = "..."
     let name = null, value = null, maxAge = 3600;
     let cm = js.match(/document\.cookie\s*=\s*["']([^"']+)["']/);
     if (cm) {
@@ -129,7 +129,6 @@ class BiliManga extends ComicSource {
       }),
     ]);
 
-    // 解析 redeem 路径并请求一次
     let redeemPath = null;
     let rm = js.match(
       /\.open\s*\(\s*["'](?:GET|POST)["']\s*,\s*["']([^"']+)["']/i
@@ -278,6 +277,7 @@ class BiliManga extends ComicSource {
         name: "主題",
         type: "fixed",
         itemType: "category",
+        // 移植无括号版扩展分类：52-65
         categories: [
           "奇幻", "冒險", "異世界", "龍傲天", "魔法", "仙俠", "戰爭", "熱血",
           "戰鬥", "競技", "懸疑", "驚悚", "獵奇", "神鬼", "偵探", "校園",
@@ -286,6 +286,8 @@ class BiliManga extends ComicSource {
           "群像", "女性視角", "歷史", "武俠", "東方", "勵志", "宅系", "科幻",
           "機戰", "遊戲", "異能", "腦洞", "病嬌", "人外", "復仇", "鬥智",
           "惡役", "間諜", "治癒",
+          "歡樂", "萌系", "末日", "大逃殺", "音樂", "美食", "性轉",
+          "偽娘", "穿越", "童話", "轉生", "黑暗", "溫馨", "超自然",
         ],
         categoryParams: [
           "1", "2", "3", "4", "5", "6", "7", "8",
@@ -295,6 +297,8 @@ class BiliManga extends ComicSource {
           "33", "34", "35", "36", "37", "38", "39", "40",
           "41", "42", "43", "44", "45", "46", "47", "48",
           "49", "50", "51",
+          "52", "53", "54", "55", "56", "57", "58",
+          "59", "60", "61", "62", "63", "64", "65",
         ],
       },
     ],
@@ -321,25 +325,20 @@ class BiliManga extends ComicSource {
     optionList: [],
   };
 
-  // 搜索：先跑 search_guard=0 → search_guard=2，再 POST
+  // 搜索：保留有括号版的 search_guard + POST；请求头改为使用 pageHeaders()，
+  // 从而自动带上移动端 Client Hints。
   search = {
     load: async (keyword, options, page) => {
       let kw = encodeURIComponent(keyword);
 
-      // 第一步：执行守卫流程
       try {
         await this._runSearchGuard();
       } catch (e) {}
 
-      // 第二步：POST 搜索，全套 Sec-Fetch 头模拟导航请求
       let res = await Network.post(
         this.baseUrl + "/search.html",
         {
-          "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
-          "Accept":
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          ...this.pageHeaders(),
           "Content-Type": "application/x-www-form-urlencoded",
           "Origin": this.baseUrl,
           "Referer": this.baseUrl + "/search.html",
@@ -479,41 +478,25 @@ class BiliManga extends ComicSource {
     },
 
     onImageLoad: (url) => {
-      let abs = url || "";
-      if (abs) {
-        if (abs.startsWith("//")) abs = "https:" + abs;
-        else if (abs.startsWith("/")) abs = "https://www.bilimanga.net" + abs;
-        else if (!/^https?:/i.test(abs))
-          abs = "https://www.bilimanga.net/" + abs;
-      }
+      let abs = this._abs(url);
       return {
         url: abs,
         headers: {
-          Referer: "https://www.bilimanga.net/",
-          "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
+          ...this.pageHeaders(),
           Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          Referer: "https://www.bilimanga.net/",
         },
       };
     },
 
     onThumbnailLoad: (url) => {
-      let abs = url || "";
-      if (abs) {
-        if (abs.startsWith("//")) abs = "https:" + abs;
-        else if (abs.startsWith("/")) abs = "https://www.bilimanga.net" + abs;
-        else if (!/^https?:/i.test(abs))
-          abs = "https://www.bilimanga.net/" + abs;
-      }
+      let abs = this._abs(url);
       return {
         url: abs,
         headers: {
-          Referer: "https://www.bilimanga.net/",
-          "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36",
+          ...this.pageHeaders(),
           Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          Referer: "https://www.bilimanga.net/",
         },
       };
     },

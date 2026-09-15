@@ -108,7 +108,7 @@
         "name": "哔哩漫画",
         "fileName": "bilimanga.js",
         "key": "bilimanga",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "description": "非个人自制，针对搜索的问题提供妥协方案（需venera客户端支持），增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
