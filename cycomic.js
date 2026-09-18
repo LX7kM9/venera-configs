@@ -1,17 +1,18 @@
 /** @type {import('./_venera_.js')} */
-class YemanComicSource extends ComicSource {
-    name = "野蛮漫画"
-    key = "yemancomic"
-    version = "1.3.8"  // 修复标题和封面串味问题
+class CycomicSource extends ComicSource {
+    name = "次元漫画"
+    key = "cycomic"
+    version = "1.0.3"
     minAppVersion = "1.6.0"
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/yemancomic.js"
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/cycomic.js"
 
-    get baseUrl() { return "https://yemancomic.com" }
+    static baseUrl = "https://2cycomic.com"
+    static IMAGE_PROXY = "https://wsrv.nl/?url="
 
     get headers() {
         return {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
-            "Referer": this.baseUrl + "/"
+            "Referer": CycomicSource.baseUrl + "/"
         }
     }
 
@@ -21,7 +22,13 @@ class YemanComicSource extends ComicSource {
         if (u.startsWith("//")) return "https:" + u
         if (u.startsWith("http://") || u.startsWith("https://")) return u
         if (!u.startsWith("/")) u = "/" + u
-        return this.baseUrl + u
+        return CycomicSource.baseUrl + u
+    }
+
+    static proxyImage(url) {
+        if (!url) return ""
+        if (url.startsWith(CycomicSource.IMAGE_PROXY)) return url
+        return CycomicSource.IMAGE_PROXY + encodeURIComponent(url)
     }
 
     text(el) { return el ? (el.text || "").trim() : "" }
@@ -98,7 +105,7 @@ class YemanComicSource extends ComicSource {
                 "Referer": referer,
                 "Content-Type": "application/x-www-form-urlencoded"
             })
-            let res = await Network.post(`${this.baseUrl}/api/comic/read/pics`, headers, Convert.encodeUtf8(body))
+            let res = await Network.post(`${CycomicSource.baseUrl}/api/comic/read/pics`, headers, Convert.encodeUtf8(body))
             if (res.status !== 200) break
             let parsed = this.parsePicApiResponse(res.body || "")
             if (parsed.total) total = parsed.total
@@ -116,7 +123,7 @@ class YemanComicSource extends ComicSource {
     }
 
     // ---------- 从单个 a[href*='/book/'] 解析漫画 ----------
-    // 关键：所有信息只从 a 自身及其内部取，避免跨卡片污染
+    // 关键：只从 a 自身和它的直接父节点里取信息，避免跨卡片污染
     parseComicFromAnchor(a) {
         let href = this.attr(a, "href")
         let m = href.match(/\/book\/(\d+)/)
@@ -127,47 +134,31 @@ class YemanComicSource extends ComicSource {
         let img = a.querySelector("img")
         let cover = ""
         if (img) {
-            cover = this.attr(img, "data-src") ||
-                    this.attr(img, "data-original") ||
-                    this.attr(img, "src") || ""
+            cover = this.attr(img, "data-src") || this.attr(img, "data-original") || this.attr(img, "src") || ""
         }
 
-        // 标题：优先 a.title，其次 img.alt，再次 a 内 .card-title 等，最后 a 文本
+        // 标题：优先 a 的 title 属性，其次 img.alt，再次 a 内文本
         let title = this.attr(a, "title").trim()
         if (!title && img) title = this.attr(img, "alt").trim()
-        if (!title) {
-            let tEl = a.querySelector(".card-title, .title, .name, .comic-name")
-            if (tEl) title = this.text(tEl)
-        }
         if (!title) title = this.text(a).replace(/\s+/g, " ")
         title = title.replace(/,?\s*[^,]*漫画\s*$/, "").trim() || title
-        if (!title) return null
 
-        // 章节信息（如果 a 内或父级有）
-        let last = ""
-        let p = a.parentElement
-        if (p) {
-            let chEl = p.querySelector(".chapter")
-            if (chEl) last = this.text(chEl)
-        }
-
-        // 标签（TL 过滤用）
-        let tags = []
-        if (p) {
-            let tagItems = p.querySelectorAll(".tags-list .item")
-            for (let t of tagItems) {
-                let tagText = this.text(t)
-                if (tagText) tags.push(tagText)
+        // 如果 a 自身没标题，从直接父节点找 .card-title / .title / .name
+        if (!title) {
+            let p = a.parentElement
+            if (p) {
+                let tEl = p.querySelector(".card-title, .title, .name, h4, h3, h2")
+                if (tEl) title = this.text(tEl)
             }
         }
-        if (tags.length === 0 && last) tags.push(last)
+
+        if (!title) return null
+        if (/^(VIP|更新|排行|分类|完结)$/i.test(title)) return null
 
         return new Comic({
             id: this.abs(href),
             title: title,
-            cover: cover ? this.abs(cover) : "",
-            tags: tags,
-            description: last
+            cover: cover ? this.abs(cover) : ""
         })
     }
 
@@ -186,6 +177,48 @@ class YemanComicSource extends ComicSource {
         return list
     }
 
+    // ---------- 排行榜解析 ----------
+    parseRankList(doc) {
+        let comics = []
+        let seen = {}
+
+        let topItems = doc.querySelectorAll(".comic-rank-top .comic-item")
+        for (let item of topItems) {
+            let a = item.querySelector("a.comic-cover-link") || item.querySelector("a[href*='/book/']")
+            if (!a) continue
+            let href = this.attr(a, "href")
+            let m = href.match(/\/book\/(\d+)/)
+            if (!m) continue
+            let id = m[1]
+            if (seen[id]) continue
+            let img = a.querySelector("img") || item.querySelector("img")
+            let cover = this.attr(img, "src") || this.attr(img, "data-src") || ""
+            let nameEl = item.querySelector(".comic-name a") || item.querySelector("h3 a")
+            let title = this.text(nameEl)
+            if (title) {
+                seen[id] = true
+                comics.push(new Comic({ id: this.abs(href), title, cover: this.abs(cover) }))
+            }
+        }
+
+        let listItems = doc.querySelectorAll(".comic-list > li.list, li.list.clearfix")
+        for (let item of listItems) {
+            let a = item.querySelector(".comic-name a") || item.querySelector("h3 a")
+            if (!a) continue
+            let href = this.attr(a, "href")
+            let m = href.match(/\/book\/(\d+)/)
+            if (!m) continue
+            let id = m[1]
+            if (seen[id]) continue
+            let title = this.text(a)
+            if (title) {
+                seen[id] = true
+                comics.push(new Comic({ id: this.abs(href), title, cover: "" }))
+            }
+        }
+        return comics
+    }
+
     parseMaxPage(doc, fallback) {
         let html = doc.querySelector("body")?.innerHTML || ""
         let maxPage = fallback || 1
@@ -199,18 +232,6 @@ class YemanComicSource extends ComicSource {
         return maxPage
     }
 
-    // ---------- TL 过滤 ----------
-    _isTL(tags) {
-        if (!this.loadSetting('hideTL')) return false
-        if (!tags || !Array.isArray(tags)) return false
-        return tags.some(t => t && t.trim().toLowerCase() === "tl")
-    }
-
-    _filterTL(comics) {
-        if (!this.loadSetting('hideTL')) return comics
-        return comics.filter(c => !this._isTL(c.tags))
-    }
-
     categoryNames = [
         "全部", "长条", "大女主", "百合", "耽美", "纯爱", "後宫", "韩漫", "奇幻", "轻小说",
         "生活", "悬疑", "格斗", "搞笑", "伪娘", "竞技", "职场", "萌系", "冒险", "治愈",
@@ -221,19 +242,19 @@ class YemanComicSource extends ComicSource {
 
     categoryUrl(name, page) {
         const encAll = encodeURIComponent("全部")
-        if (name === "日漫") return `${this.baseUrl}/comiclists/1/${encAll}/3/${page}.html`
-        if (name === "港台") return `${this.baseUrl}/comiclists/2/${encAll}/3/${page}.html`
-        if (name === "美漫") return `${this.baseUrl}/comiclists/3/${encAll}/3/${page}.html`
-        if (name === "国漫") return `${this.baseUrl}/comiclists/4/${encAll}/3/${page}.html`
-        if (name === "韩漫专区") return `${this.baseUrl}/comiclists/5/${encAll}/3/${page}.html`
-        if (name === "未分类") return `${this.baseUrl}/comiclists/6/${encAll}/3/${page}.html`
-        if (name === "连载中") return `${this.baseUrl}/comiclists/9/${encAll}/4/${page}.html`
-        if (name === "已完结") return `${this.baseUrl}/comiclists/9/${encAll}/1/${page}.html`
-        return `${this.baseUrl}/comiclists/9/${encodeURIComponent(name)}/3/${page}.html`
+        if (name === "日漫") return `${CycomicSource.baseUrl}/booklists/1/${encAll}/3/${page}.html`
+        if (name === "港台") return `${CycomicSource.baseUrl}/booklists/2/${encAll}/3/${page}.html`
+        if (name === "美漫") return `${CycomicSource.baseUrl}/booklists/3/${encAll}/3/${page}.html`
+        if (name === "国漫") return `${CycomicSource.baseUrl}/booklists/4/${encAll}/3/${page}.html`
+        if (name === "韩漫专区") return `${CycomicSource.baseUrl}/booklists/5/${encAll}/3/${page}.html`
+        if (name === "未分类") return `${CycomicSource.baseUrl}/booklists/6/${encAll}/3/${page}.html`
+        if (name === "连载中") return `${CycomicSource.baseUrl}/booklists/9/${encAll}/4/${page}.html`
+        if (name === "已完结") return `${CycomicSource.baseUrl}/booklists/9/${encAll}/1/${page}.html`
+        return `${CycomicSource.baseUrl}/booklists/9/${encodeURIComponent(name)}/3/${page}.html`
     }
 
     category = {
-        title: "野蛮漫画",
+        title: "次元漫画",
         parts: [
             {
                 name: "分类",
@@ -250,19 +271,23 @@ class YemanComicSource extends ComicSource {
         load: async (category, param, options, page) => {
             let doc = await this.getDoc(this.categoryUrl(param || category || "全部", page || 1))
             let comics = this.parseComicList(doc)
-            comics = this._filterTL(comics)
             let maxPage = this.parseMaxPage(doc, page || 1)
             doc.dispose()
             return { comics, maxPage }
         },
         ranking: {
-            options: ["alldj-总点击", "week-周点击", "month-月点击"],
+            options: [
+                "alldj-总点击",
+                "ydj-月点击",
+                "zdj-周点击",
+                "rdj-日点击",
+                "allfav-总收藏"
+            ],
             load: async (option, page) => {
                 let key = (option || "alldj").split("-")[0]
-                let url = page && page > 1 ? `${this.baseUrl}/top/${key}-${page}.html` : `${this.baseUrl}/top/${key}.html`
+                let url = page && page > 1 ? `${CycomicSource.baseUrl}/top/${key}-${page}.html` : `${CycomicSource.baseUrl}/top/${key}.html`
                 let doc = await this.getDoc(url)
-                let comics = this.parseComicList(doc)
-                comics = this._filterTL(comics)
+                let comics = this.parseRankList(doc)
                 let maxPage = this.parseMaxPage(doc, page || 1)
                 doc.dispose()
                 return { comics, maxPage }
@@ -273,25 +298,18 @@ class YemanComicSource extends ComicSource {
     // ---------- 发现页 ----------
     explore = [
         {
-            title: "野蛮漫画",
+            title: "次元漫画",
             type: "singlePageWithMultiPart",
             load: async () => {
-                let doc = await this.getDoc(this.baseUrl + "/")
+                let doc = await this.getDoc(CycomicSource.baseUrl + "/")
                 let result = {}
-                const targetTitles = [
-                    "新作·热腾腾出炉",
-                    "经典·永不退色的记忆",
-                    "最强C位",
-                    "完结·一次爽翻天"
-                ]
                 let blocks = doc.querySelectorAll(".mult.sow")
                 for (let block of blocks) {
                     let titleEl = block.querySelector(".mult-title")
                     if (!titleEl) continue
                     let title = this.text(titleEl).trim()
-                    if (!targetTitles.includes(title)) continue
+                    if (!title) continue
                     let comics = this.parseComicList(block)
-                    comics = this._filterTL(comics)
                     if (comics.length) result[title] = comics
                 }
                 doc.dispose()
@@ -299,14 +317,13 @@ class YemanComicSource extends ComicSource {
             }
         },
         {
-            title: "每日更新-野蛮",
+            title: "每日更新-次元",
             type: "multiPageComicList",
             load: async (page) => {
                 let day = new Date().getDay()
                 day = day === 0 ? 7 : day
-                let doc = await this.getDoc(`${this.baseUrl}/update/${day}.html`)
+                let doc = await this.getDoc(`${CycomicSource.baseUrl}/update/${day}.html`)
                 let comics = this.parseComicList(doc)
-                comics = this._filterTL(comics)
                 doc.dispose()
                 return { comics, maxPage: 1 }
             }
@@ -315,10 +332,9 @@ class YemanComicSource extends ComicSource {
 
     search = {
         load: async (keyword, options, page) => {
-            let url = `${this.baseUrl}/search?searchkey=${encodeURIComponent(keyword)}`
+            let url = `${CycomicSource.baseUrl}/search?searchkey=${encodeURIComponent(keyword)}`
             let doc = await this.getDoc(url)
             let comics = this.parseComicList(doc)
-            comics = this._filterTL(comics)
             doc.dispose()
             return { comics, maxPage: 1 }
         },
@@ -326,9 +342,9 @@ class YemanComicSource extends ComicSource {
     }
 
     comic = {
-        idMatch: "https?://(www\\.)?yemancomic\\.com/book/\\d+/?",
+        idMatch: "https?://(www\\.)?2cycomic\\.com/book/\\d+/?",
         link: {
-            domains: ["yemancomic.com", "www.yemancomic.com"],
+            domains: ["2cycomic.com", "www.2cycomic.com"],
             linkToId: (url) => url && url.indexOf("/book/") >= 0 ? url : null
         },
         loadInfo: async (id) => {
@@ -336,8 +352,12 @@ class YemanComicSource extends ComicSource {
             let doc = await this.getDoc(url)
             let title = this.text(doc.querySelector("h1.name")) || this.text(doc.querySelector("h1"))
             let author = this.text(doc.querySelector("span.author")) || this.text(doc.querySelector(".author"))
-            let cover = this.attr(doc.querySelector(".thumbnail img"), "src") || this.attr(doc.querySelector(".cover img"), "src") || this.attr(doc.querySelector("img"), "src")
-            let desc = this.text(doc.querySelector("#js_desc_content")) || this.text(doc.querySelector(".desc-con")) || this.text(doc.querySelector(".description"))
+            let cover = this.attr(doc.querySelector(".thumbnail img"), "src") ||
+                        this.attr(doc.querySelector(".cover img"), "src") ||
+                        this.attr(doc.querySelector("img"), "src")
+            let desc = this.text(doc.querySelector("#js_desc_content")) ||
+                       this.text(doc.querySelector(".desc-con")) ||
+                       this.text(doc.querySelector(".description"))
             let tagNodes = doc.querySelectorAll("ul.types a, .types a, .type a")
             let tags = {}
             let tagArr = []
@@ -346,10 +366,11 @@ class YemanComicSource extends ComicSource {
                 if (tx) tagArr.push(tx)
             }
             if (tagArr.length) tags["分类"] = tagArr
+
             let chapters = {}
             let selectors = [
                 "#chapter-list a", ".chapter-list a", ".chapter a", ".episodes a", ".episode-list a", ".comic-chapters a",
-                "ul[id*=chapter] a", "div[id*=chapter] a", "a[href*='/chapter/']", "a[href*='/comic/']"
+                "ul[id*=chapter] a", "div[id*=chapter] a", "a[href*='/chapter/']"
             ]
             let seen = {}
             for (let sel of selectors) {
@@ -419,25 +440,18 @@ class YemanComicSource extends ComicSource {
             return { images }
         },
         onImageLoad: (url, comicId, epId) => {
-            return { headers: this.headers }
+            if (!url) return { headers: this.headers }
+            return {
+                url: CycomicSource.proxyImage(url),
+                headers: this.headers
+            }
         },
         onThumbnailLoad: (url) => {
-            return { headers: this.headers }
+            if (!url) return { headers: this.headers }
+            return {
+                url: CycomicSource.proxyImage(url),
+                headers: this.headers
+            }
         }
-    }
-
-    settings = {
-        hideTL: {
-            title: "屏蔽TL内容",
-            type: "switch",
-            default: false,
-            description: "开启后将过滤掉标签中带有「TL」的漫画"
-        },
-    }
-
-    translation = {
-        'zh_CN': { '屏蔽TL内容': '屏蔽TL内容' },
-        'zh_TW': { '屏蔽TL内容': '屏蔽TL內容' },
-        'en': { '屏蔽TL内容': 'Hide TL Content' },
     }
 }

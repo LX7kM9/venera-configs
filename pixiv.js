@@ -7,7 +7,7 @@ class Pixiv extends ComicSource {
     // ============================================================
     name = "Pixiv"
     key = "pixiv"
-    version = "1.5.0"  // 增强AI检测：标题/描述/标签中检测 ai-generated 等关键词
+    version = "1.5.1"  // 增强AI检测：标题/描述/标签中检测 ai-generated 等关键词
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/pixiv.js"
 
@@ -1095,7 +1095,7 @@ class Pixiv extends ComicSource {
 • 探索页：包含「关注」「推荐画师」「已关注画师」三个入口，方便快速浏览。
 • 屏蔽R18/R18G/AI：可在下方开关中开启，开启后将在收藏夹、搜索、排行榜、关注动态等列表中过滤相应作品（R18/R18G只在推荐画师中不生效，AI只在搜索结果中生效）。
 • API地址：默认使用官方API，若需更换镜像或自定义节点，可在下方「API 地址」中修改（需为https://开头）。
-• 关注画师可通过页面有上角打开网页关注。
+• 关注画师可点击画师详情页的点赞或通过页面右上角打开网页关注。
 • Refresh Token等凭证仅存储在本地，不会上传或泄露，请妥善保管。`, [{text: "知道了", callback: () => {}}])
             }
         },

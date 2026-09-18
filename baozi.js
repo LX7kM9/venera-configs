@@ -5,7 +5,7 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.2.0";
+  version = "1.2.1";
 
   minAppVersion = "1.0.0";
 
@@ -50,10 +50,13 @@ class Baozi extends ComicSource {
         { value: "as2.baozimh.com", text: "as2.baozimh.com" },
         { value: "static-tw.bzmgcn.com", text: "static-tw.bzmgcn.com（仅原图）" },
         { value: "static-tw.baozimh.com", text: "static-tw.baozimh.com（仅原图）" },
+        // ---------- 从 1.1.7 版本补充的域名 ----------
+        { value: "s1.bzcdn.net", text: "s1.bzcdn.net" },
+        { value: "s2.bzcdn.net", text: "s2.bzcdn.net" },
         // ---------- 默认选项（空值）放在最底下 ----------
         { value: "", text: "默认" },
       ],
-      default: "as.baozimh.com", // 与 recode 保持一致
+      default: "as.baozimh.com",
     },
     image_quality: {
       title: "图片质量",
@@ -495,32 +498,75 @@ class Baozi extends ComicSource {
         url: comicUrl,   // 右上角菜单将显示“复制链接”
       });
     },
+
     loadEp: async (comicId, epId) => {
       const images = [];
+      const quality = this.loadSetting("image_quality");
+      const cdnSetting = this.loadSetting("cdn_domains");
 
-      // App版链接
-      let currentPageUrl = `https://appcn.baozimh.com/baozimhapp/comic/chapter/${comicId}/0_${epId}.html`;
+      const parseImagesFromDoc = (doc) => {
+        const result = [];
 
-      const res = await Network.get(currentPageUrl);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
+        // 兼容 1.1.7 的选择器，同时兼容 1.2.0 的旧结构
+        let imageNodes = doc.querySelectorAll(
+          ".comic-contain amp-img.comic-contain__item"
+        );
+        if (!imageNodes.length) {
+          imageNodes = doc.querySelectorAll(".comic-contain > .chapter-img");
+        }
+
+        imageNodes.forEach((imgNode) => {
+          let imgUrl =
+            imgNode.attributes?.["data-src"] ||
+            imgNode.attributes?.src ||
+            imgNode.querySelector(".comic-contain__item")?.attributes?.["data-src"] ||
+            imgNode.querySelector("amp-img")?.attributes?.["data-src"] ||
+            imgNode.querySelector("amp-img")?.attributes?.src;
+
+          if (imgUrl) {
+            const match = imgUrl.match(
+              /^(https?:\/\/)?([^/\s:]+)(:\d+)?(\/[a-z]comic\/.*)/
+            );
+            if (match) {
+              const domain = cdnSetting === "" ? match[2] : cdnSetting;
+              imgUrl = `${match[1] || "https://"}${domain}${quality}${match[4]}`;
+            }
+            result.push(imgUrl);
+          }
+        });
+
+        return result;
+      };
+
+      // 优先使用 1.2.0 原有 App 版链接
+      try {
+        const appPageUrl = `https://appcn.baozimh.com/baozimhapp/comic/chapter/${comicId}/0_${epId}.html`;
+        const res = await Network.get(appPageUrl);
+        if (res.status !== 200) {
+          throw `Invalid status code: ${res.status}`;
+        }
+
+        const doc = new HtmlDocument(res.body);
+        images.push(...parseImagesFromDoc(doc));
+      } catch (e) {
+        // App 版失败则回退到主站，不直接中断
       }
 
-      const doc = new HtmlDocument(res.body);
+      // 从 1.1.7 移植：App 版无图或失败时，使用主站页面并带 Referer
+      if (images.length === 0) {
+        const currentPageUrl = `${this.baseUrl}/comic/chapter/${comicId}/0_${epId}.html`;
+        const res = await Network.get(currentPageUrl, {
+          Referer: `${this.baseUrl}/`,
+        });
 
-      // 解析当前页图片(App 版)
-      const imageNodes = doc.querySelectorAll(".comic-contain > .chapter-img");
-      imageNodes.forEach((imgNode) => {
-        let imgUrl = imgNode.querySelector(".comic-contain__item")?.attributes?.["data-src"];
-        if (imgUrl) {
-          const match = imgUrl.match(/^(https?:\/\/)?([^/\s:]+)(:\d+)?(\/[a-z]comic\/.*)/);
-          if (match) {
-            const domain = this.loadSetting("cdn_domains") === "" ? match[2] : this.loadSetting("cdn_domains");
-            imgUrl = `${match[1]}${domain}${this.loadSetting("image_quality")}${match[4]}`;
-          }
-          images.push(imgUrl);
+        if (res.status !== 200) {
+          throw `Invalid status code: ${res.status}`;
         }
-      });
+
+        const doc = new HtmlDocument(res.body);
+        images.push(...parseImagesFromDoc(doc));
+      }
+
       return { images: images };
     },
 
