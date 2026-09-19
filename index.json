@@ -37,8 +37,8 @@
         "name": "腾讯动漫（正版）",
         "fileName": "qq_comic_official.js",
         "key": "qq_comic_official",
-        "version": "1.0.4",
-        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "2.0.0",
+        "description": "非个人自制，支持账号登录，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "如漫画",
@@ -230,6 +230,34 @@
         "description": "非个人自制，增加分类页、发现页，修复封面显示异常的问题，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "漫本",
+        "fileName": "manben.js",
+        "key": "manben",
+        "version": "1.1.0",
+        "description": "非个人自制，按照dm5重做"
+    },
+    {
+        "name": "漫画皮",
+        "fileName": "manhuapi.js",
+        "key": "manhuapi",
+        "version": "1.4.2",
+        "description": "非个人自制，搜索因官方关闭所以无法正常搜索，重做发现页，新增分类页，漫画详情页优化，增加发现页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫客栈",
+        "fileName": "mkzhan.js",
+        "key": "mkzhan",
+        "version": "1.1.4",
+        "description": "非个人自制，新增分类页，重做发现页，优化漫画详情页显示，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "漫画kan",
+        "fileName": "mhkan.js",
+        "key": "mhkan",
+        "version": "1.1.7",
+        "description": "非个人自制，重做发现页，新增分类页，优化漫画详情页，增加漫画详情页链接复制，支持链接解析跳转"
+    },  
+    {
         "name": "MYCOMIC",
         "fileName": "mycomic.js",
         "key": "mycomic",
@@ -310,8 +338,8 @@
         "name": "Pixiv",
         "fileName": "pixiv.js",
         "key": "pixiv",
-        "version": "1.5.1",
-        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，目前无法攻破多账号问题和直连问题"
+        "version": "1.7.2",
+        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，已支持多账号，暂时无法攻破直连问题"
     },
     {
         "name": "少年ジャンプ＋",
