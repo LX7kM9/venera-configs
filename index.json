@@ -258,6 +258,27 @@
         "description": "非个人自制，重做发现页，新增分类页，优化漫画详情页，增加漫画详情页链接复制，支持链接解析跳转"
     },  
     {
+        "name": "嬉皮漫画",
+        "fileName": "hipmh.js",
+        "key": "hipmh",
+        "version": "1.0.6",
+        "description": "非个人自制，修复链接解析跳转"
+    },
+    {
+        "name": "LINE WEBTOON",
+        "fileName": "webtoons_zh_hant.js",
+        "key": "webtoons_zh_hant",
+        "version": "1.0.1",
+        "description": "非个人自制"
+    },
+    {
+        "name": "X漫画",
+        "fileName": "xmanhua.js",
+        "key": "xmanhua",
+        "version": "1.8.1",
+        "description": "非个人自制，重做发现页，新增分类页，优化漫画详情页，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "MYCOMIC",
         "fileName": "mycomic.js",
         "key": "mycomic",
@@ -338,7 +359,7 @@
         "name": "Pixiv",
         "fileName": "pixiv.js",
         "key": "pixiv",
-        "version": "1.7.2",
+        "version": "1.8.3",
         "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，已支持多账号，暂时无法攻破直连问题"
     },
     {
