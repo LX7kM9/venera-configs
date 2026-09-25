@@ -3,7 +3,7 @@
 class YandeRe extends ComicSource {
     name = "yande.re"
     key = "yandere"
-    version = "4.9.2"
+    version = "4.9.3"
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/yandere.js"
 
@@ -42,6 +42,7 @@ class YandeRe extends ComicSource {
         }
     }
 
+    // 给 URL 加上 locale 参数（yande.re 用 ?locale=xx 控制界面语言）
     _withLocale(url) {
         if (!url) return url
         let locale = this.loadSetting("locale") || "zh_CN"
@@ -97,6 +98,7 @@ class YandeRe extends ComicSource {
         return result.join(" ")
     }
 
+    // 去掉 Venera 传入的 option 值两端的引号
     _cleanOption(v, def) {
         if (v === undefined || v === null) return def
         let s = String(v).trim()
@@ -126,6 +128,8 @@ class YandeRe extends ComicSource {
         return this._withLocale(url)
     }
 
+    // ============ 登录状态检测 ============
+
     async _isLoggedIn() {
         try {
             let res = await Network.get(this._withLocale(this.base + "/user/home"), this.headers())
@@ -140,6 +144,8 @@ class YandeRe extends ComicSource {
             return false
         }
     }
+
+    // ============ 热门标签缓存 ============
 
     _getHotTags() {
         let cached = this.loadData("_hot_tags")
@@ -202,6 +208,8 @@ class YandeRe extends ComicSource {
             console.error("yande.re 热门标签加载失败:", e)
         }
     }
+
+    // ============ 公共解析 ============
 
     parsePostList(body) {
         let doc = new HtmlDocument(body)
@@ -396,6 +404,8 @@ class YandeRe extends ComicSource {
         onTagSuggestionSelected: (namespace, tag) => tag,
     }
 
+    // ============ 账号 ============
+
     account = {
         loginWithWebview: {
             url: this.base + "/user/login",
@@ -446,6 +456,7 @@ class YandeRe extends ComicSource {
                 this.deleteData("_fav_username")
                 console.log("yande.re 账号登录成功，session 已保存到 jar")
 
+                // 登录后立即校验
                 let check = await Network.get(
                     this._withLocale(this.base + "/user/home"),
                     this.headers()
@@ -471,6 +482,8 @@ class YandeRe extends ComicSource {
 
         registerWebsite: "https://yande.re/user/signup",
     }
+
+    // ============ 收藏夹 ============
 
     _sanitizeUsername(input) {
         if (!input) return ""
@@ -592,15 +605,19 @@ class YandeRe extends ComicSource {
         },
     }
 
+    // ============ 投票核心（只通过 html class 判断成败） ============
+
     async _voteComic(comicId, isAdding) {
         console.log("===== 投票开始 =====")
 
+        // 1. 一次 GET 详情页：拿 csrf-token，同时让 jar 里的 session 刷新
         let detailUrl = this._withLocale(this.base + "/post/show/" + comicId)
         let res1 = await Network.get(detailUrl, this.headers())
         if (res1.status !== 200) throw "无法获取详情页: HTTP " + res1.status
 
         let body = res1.body || ""
 
+        // 2. 登录状态：看 html class 是否 action-user-login
         let loginHtmlMatch = body.match(/<html class="([^"]*)"/)
         let loginHtmlClass = loginHtmlMatch ? loginHtmlMatch[1] : ""
         let isLoginPage = loginHtmlClass.indexOf("action-user-login") !== -1
@@ -610,6 +627,7 @@ class YandeRe extends ComicSource {
             throw "请先登录 yande.re 账号。请在设置中登录，或通过 WebView 登录。"
         }
 
+        // 3. 优先取 meta 里的 csrf-token
         let m = body.match(/<meta name="csrf-token"\s+content="([^"]+)"/)
         if (!m) m = body.match(/<form[^>]*id="edit-form"[^>]*>[\s\S]*?name="authenticity_token"[^>]*value="([^"]+)"/)
         if (!m) m = body.match(/name="authenticity_token"[^>]*value="([^"]+)"/)
@@ -617,6 +635,7 @@ class YandeRe extends ComicSource {
         let token = m[1]
         console.log("[2] token 长度: " + token.length)
 
+        // 4. POST /post/vote（Venera 会自动把 jar 里的 cookie 塞进来）
         let score = isAdding ? 3 : 0
         let postBody = "id=" + comicId +
                        "&score=" + score +
@@ -644,6 +663,7 @@ class YandeRe extends ComicSource {
             throw "投票失败: HTTP " + res.status
         }
 
+        // 5. 只看响应开头的 <html class="...">
         let respHtmlMatch = (res.body || "").match(/<html class="([^"]*)"/)
         let respHtmlClass = respHtmlMatch ? respHtmlMatch[1] : ""
         console.log("[4] 响应 html class: [" + respHtmlClass + "]")
@@ -660,6 +680,8 @@ class YandeRe extends ComicSource {
         console.log("[5] 投票成功 (score=" + score + ")")
         return "ok"
     }
+
+    // ============ 详情 ============
 
     _checkIsVotedInBody(body, postId) {
         let resp = this.extractJsonAfter(body, "Post.register_resp(")
@@ -820,6 +842,7 @@ class YandeRe extends ComicSource {
         },
 
         likeComic: async (id, isLike) => {
+            // 先查一次当前投票状态，再决定 add/remove
             let url = this._withLocale(this.base + "/post/show/" + id)
             let res = await Network.get(url, this.headers())
             if (res.status !== 200) throw "HTTP " + res.status
@@ -828,15 +851,13 @@ class YandeRe extends ComicSource {
             return await this._voteComic(id, !currentlyVoted)
         },
 
-        // ============ 评论功能 ============
-        // yande.re 没有单帖评论区，只有全站评论流。
-        // 每条评论会附上它所属的作品（Markdown 可点击链接），
-        // 评论者头像取自 .comment-avatar-container img.avatar
+        // ============ 评论功能（支持翻页） ============
 
         loadComments: async (comicId, subId, page, replyTo) => {
+            let p = page || 1
             let url = this.base + "/comment"
             let q = []
-            if (page && page > 1) q.push("page=" + page)
+            if (p > 1) q.push("page=" + p)
             let locale = this.loadSetting("locale") || "zh_CN"
             q.push("locale=" + encodeURIComponent(locale))
             if (q.length > 0) url += "?" + q.join("&")
@@ -911,10 +932,25 @@ class YandeRe extends ComicSource {
                     }))
                 }
             }
+
+            // 解析最大页数：从 #paginator 里找到所有带 page= 参数的链接
+            let maxPage = 1
+            let paginator = doc.querySelector("#paginator .pagination")
+            if (paginator) {
+                let links = paginator.querySelectorAll("a")
+                for (let link of links) {
+                    let href = link.attributes.href || ""
+                    let m = href.match(/[?&]page=(\d+)/)
+                    if (m) {
+                        let num = parseInt(m[1])
+                        if (num > maxPage) maxPage = num
+                    }
+                }
+            }
             doc.dispose()
 
-            console.log("yande.re loadComments 全站评论数=" + comments.length)
-            return { comments: comments, maxPage: 1 }
+            console.log("yande.re loadComments page=" + p + " 评论数=" + comments.length + " maxPage=" + maxPage)
+            return { comments: comments, maxPage: maxPage }
         },
 
         sendComment: async (comicId, subId, content, replyTo) => {
@@ -992,6 +1028,8 @@ class YandeRe extends ComicSource {
         },
     }
 
+    // ============ 设置 ============
+
     settings = {
         help: {
             title: "使用帮助", type: "callback", buttonText: "查看帮助",
@@ -1005,7 +1043,7 @@ class YandeRe extends ComicSource {
 【收藏功能】
 • yande.re 的「收藏」本质上就是给图片投 3 星（score=3）。所以点击详情页的心形按钮，就是收藏。
 • 取消收藏会投 0 分，图片会从收藏列表中消失。
-• 如果收藏夹列表为空，请到设置里填写「收藏夹用户名」（即你自己的 yande.re 用户名），注意不要带 vote:3: 或 order:vote 前缀。
+• 如果收藏夹列表为空，请到设置里填写「收藏夹用户名」（即你自己的 yande.re 用户名，例如 輕小說萬歲），注意不要带 vote:3: 或 order:vote 前缀。
 
 【屏蔽评级】
 • 屏蔽 Explicit：屏蔽评级为 R-18 的帖子（默认开）。
@@ -1022,7 +1060,8 @@ class YandeRe extends ComicSource {
 
 【评论区】
 • yande.re 没有单帖评论区，只有全站评论流。
-• 脚本返回的是全站评论，每条评论下方会标注「—— 评论作品: [#ID](链接)」，点击可跳转到对应作品。
+• 脚本返回的是全站评论，支持翻页（读取 #paginator 的最大页码）。
+• 每条评论下方会标注「—— 评论作品: [#ID](链接)」，点击可跳转到对应作品。
 • 评论者头像取自评论者自己的 avatar（https://yande.re/data/avatars/{user_id}.jpg）。
 • 如果某条评论看不到头像，说明该用户没有设置头像。
 • 发送评论需要先登录，脚本会自己抓 CSRF token 后 POST 到 /comment/create。
@@ -1075,7 +1114,7 @@ class YandeRe extends ComicSource {
             title: "收藏夹用户名",
             type: "input",
             default: "",
-            description: "只填 yande.re 用户名即可，不要带 vote:3: 或 order:vote。留空会自动尝试检测。"
+            description: "只填 yande.re 用户名即可（如 轻小说万岁），不要带 vote:3: 或 order:vote。留空会自动尝试检测。"
         },
     }
 }
