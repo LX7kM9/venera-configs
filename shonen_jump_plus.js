@@ -1,7 +1,7 @@
 class ShonenJumpPlus extends ComicSource {
   name = "少年ジャンプ＋";
   key = "shonen_jump_plus";
-  version = "1.2.2"; // 修复链接解析，增加网页抓取提取 seriesId
+  version = "1.3.1"; // 修复空封面和空章节崩溃
   minAppVersion = "1.2.1";
   url =
     "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/shonen_jump_plus.js";
@@ -10,19 +10,114 @@ class ShonenJumpPlus extends ComicSource {
   bearerToken = null;
   userAccountId = null;
   tokenExpiry = 0;
-  latestVersion = "4.3.0"; // 备用版本（建议定期更新）
-  _retryCount = 0; // 重试计数器
+  latestVersion = "4.3.0";
+  _retryCount = 0;
+  _fetchingToken = null;
+
+  // ========== UA 池 ==========
+  _fallbackUAPool = [
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+  ];
+  _uaPool = this._fallbackUAPool.slice();
+  _uaPoolLoadedAt = 0;
+  _currentUA = null;
+
+  _uaPoolSources = [
+    "https://cdn.jsdelivr.net/gh/microlinkhq/top-user-agents@master/src/index.json",
+    "https://raw.githubusercontent.com/microlinkhq/top-user-agents/master/src/index.json",
+  ];
+  _uaPoolTTL = 24 * 60 * 60 * 1000;
 
   get headers() {
+    const ua = this._getCurrentUA();
     return {
       Origin: "https://shonenjumpplus.com",
       Referer: "https://shonenjumpplus.com/",
       "X-Giga-Device-Id": this.deviceId,
-      "User-Agent": `ShonenJumpPlus-Android/${this.latestVersion}`,
+      "User-Agent": ua,
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Dest": "empty",
     };
   }
 
   apiBase = `https://shonenjumpplus.com/api/v1`;
+
+  _getCurrentUA() {
+    if (!this._currentUA) {
+      this._currentUA = this._pickRandomUA();
+    }
+    return this._currentUA;
+  }
+
+  _pickRandomUA() {
+    const pool =
+      this._uaPool && this._uaPool.length > 0
+        ? this._uaPool
+        : this._fallbackUAPool;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  _rotateUA() {
+    this._currentUA = this._pickRandomUA();
+    console.log(`[ShonenJumpPlus] 切换 UA: ${this._currentUA}`);
+  }
+
+  async _loadUAPool() {
+    const now = Date.now();
+    if (this._uaPoolLoadedAt > 0 && now - this._uaPoolLoadedAt < this._uaPoolTTL) {
+      return;
+    }
+
+    for (const url of this._uaPoolSources) {
+      try {
+        const resp = await Network.get(url, {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "application/json, text/plain, */*",
+        });
+        if (resp.status !== 200) continue;
+
+        const data = JSON.parse(resp.body);
+        let list = [];
+        if (Array.isArray(data)) {
+          list = data;
+        } else if (data && Array.isArray(data.userAgents)) {
+          list = data.userAgents;
+        } else if (data && Array.isArray(data.data)) {
+          list = data.data;
+        }
+
+        list = list
+          .filter(
+            (ua) =>
+              typeof ua === "string" &&
+              ua.length > 30 &&
+              /Mozilla\/5\.0/.test(ua) &&
+              !/bot|crawler|spider|curl|wget|python|java|okhttp/i.test(ua),
+          )
+          .slice(0, 200);
+
+        if (list.length >= 5) {
+          this._uaPool = list;
+          this._uaPoolLoadedAt = now;
+          console.log(`[ShonenJumpPlus] UA 池已更新，共 ${list.length} 条`);
+          return;
+        }
+      } catch (e) {
+        console.warn(`[ShonenJumpPlus] 加载 UA 池失败: ${e.message}`);
+      }
+    }
+
+    this._uaPoolLoadedAt = now;
+    console.warn("[ShonenJumpPlus] UA 池更新失败，使用兜底池");
+  }
 
   generateDeviceId() {
     let result = "";
@@ -33,11 +128,22 @@ class ShonenJumpPlus extends ComicSource {
     return result;
   }
 
-  // 初始化：获取最新版本号
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.floor(ms)));
+  }
+
   async init() {
     try {
+      await this._loadUAPool();
+    } catch (e) {
+      console.warn("[ShonenJumpPlus] init 加载 UA 池异常:", e);
+    }
+
+    try {
       const url = "https://itunes.apple.com/jp/lookup?id=875750302";
-      const resp = await Network.get(url);
+      const resp = await Network.get(url, {
+        "User-Agent": this._pickRandomUA(),
+      });
       if (resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
       const data = JSON.parse(resp.body);
       if (data.results && data.results.length > 0) {
@@ -60,70 +166,114 @@ class ShonenJumpPlus extends ComicSource {
       type: "singlePageWithMultiPart",
       load: async () => {
         await this.ensureAuth();
-
-        const response = await this.graphqlRequest("HomeCacheable", {});
-
-        if (!response || !response.data || !response.data.homeSections) {
-          throw "Cannot fetch home sections";
-        }
-
-        const sections = response.data.homeSections;
-        const dailyRankingSection = sections.find(
-          (section) => section.__typename === "DailyRankingSection",
-        );
-
-        if (!dailyRankingSection || !dailyRankingSection.dailyRankings) {
-          throw "Cannot fetch daily ranking data";
-        }
-
-        const dailyRanking = dailyRankingSection.dailyRankings.find(
-          (ranking) =>
-            ranking.ranking && ranking.ranking.__typename === "DailyRanking",
-        );
-
-        if (
-          !dailyRanking ||
-          !dailyRanking.ranking ||
-          !dailyRanking.ranking.items ||
-          !dailyRanking.ranking.items.edges
-        ) {
-          throw "Cannot fetch ranking data structure";
-        }
-
-        const rankingItems = dailyRanking.ranking.items.edges
-          .map((edge) => edge.node)
-          .filter(
-            (node) =>
-              node.__typename === "DailyRankingValidItem" && node.product,
-          );
-
-        function parseComic(item) {
-          const series = item.product.series;
-          if (!series) return null;
-
-          const cover =
-            series.squareThumbnailUriTemplate ||
-            series.horizontalThumbnailUriTemplate;
-
-          return {
-            id: series.databaseId,
-            title: series.title || "",
-            cover: cover
-              ? cover.replace("{height}", "500").replace("{width}", "500")
-              : "",
-            tags: [],
-            description: `Ranking: ${item.rank} · Views: ${
-              item.viewCount || "Unknown"
-            }`,
-          };
-        }
-
-        const comics = rankingItems
-          .map(parseComic)
-          .filter((comic) => comic !== null);
-
         const result = {};
-        result["Daily Ranking"] = comics;
+
+        try {
+          const response = await this.graphqlRequest("HomeCacheable", {});
+
+          if (response && response.data && response.data.homeSections) {
+            const sections = response.data.homeSections;
+            const dailyRankingSection = sections.find(
+              (section) => section.__typename === "DailyRankingSection",
+            );
+
+            if (dailyRankingSection && dailyRankingSection.dailyRankings) {
+              const dailyRanking = dailyRankingSection.dailyRankings.find(
+                (ranking) =>
+                  ranking.ranking &&
+                  ranking.ranking.__typename === "DailyRanking",
+              );
+
+              if (
+                dailyRanking &&
+                dailyRanking.ranking &&
+                dailyRanking.ranking.items &&
+                dailyRanking.ranking.items.edges
+              ) {
+                const rankingItems = dailyRanking.ranking.items.edges
+                  .map((edge) => edge.node)
+                  .filter(
+                    (node) =>
+                      node.__typename === "DailyRankingValidItem" &&
+                      node.product,
+                  );
+
+                const parseComic = (item) => {
+                  const series = item.product.series;
+                  if (!series) return null;
+                  const cover =
+                    series.squareThumbnailUriTemplate ||
+                    series.horizontalThumbnailUriTemplate;
+                  return {
+                    id: series.databaseId,
+                    title: series.title || "",
+                    cover: this.replaceCoverUrl(cover),
+                    tags: [],
+                    description: `Ranking: ${item.rank} · Views: ${
+                      item.viewCount || "Unknown"
+                    }`,
+                  };
+                };
+
+                const comics = rankingItems
+                  .map(parseComic)
+                  .filter((comic) => comic !== null);
+
+                if (comics.length > 0) {
+                  result["Daily Ranking"] = comics;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[ShonenJumpPlus] HomeCacheable 失败，回退到搜索:", e);
+        }
+
+        if (Object.keys(result).length === 0) {
+          // 优化回退关键词，避免搜出一堆没有章节的杂志
+          const fallbackGroups = [
+            { title: "连载中", keyword: "連載中" },
+            { title: "新连載", keyword: "新連載" },
+            { title: "热门作品", keyword: "週刊少年ジャンプ" },
+          ];
+
+          for (const group of fallbackGroups) {
+            try {
+              const resp = await this.graphqlRequest("SearchResult", {
+                keyword: group.keyword,
+              });
+              const edges = resp?.data?.search?.edges || [];
+              const comics = edges
+                .map(({ node }) => {
+                  if (node.__typename === "Series") {
+                    const cover = node.thumbnailUriTemplate;
+                    return {
+                      id: node.databaseId,
+                      title: node.title || "",
+                      cover: this.replaceCoverUrl(cover),
+                      tags: [],
+                      description: node.description || "",
+                    };
+                  }
+                  return null;
+                })
+                .filter(Boolean);
+              if (comics.length > 0) {
+                result[group.title] = comics.slice(0, 20);
+              }
+            } catch (e) {
+              console.warn(
+                `[ShonenJumpPlus] 回退搜索 "${group.keyword}" 失败:`,
+                e,
+              );
+            }
+          }
+        }
+
+        if (Object.keys(result).length === 0) {
+          throw "无法加载发现页内容";
+        }
+
         return result;
       },
     },
@@ -180,8 +330,7 @@ class ShonenJumpPlus extends ComicSource {
 
   comic = {
     loadInfo: async (id) => {
-      // 如果传入的是 episode publisherId（带有 ep: 前缀），则先获取对应的 series ID
-      if (typeof id === 'string' && id.startsWith('ep:')) {
+      if (typeof id === "string" && id.startsWith("ep:")) {
         const episodeId = id.slice(3);
         const seriesId = await this.getSeriesIdFromEpisode(episodeId);
         id = seriesId;
@@ -230,7 +379,17 @@ class ShonenJumpPlus extends ComicSource {
 
     loadEp: async (comicId, epId) => {
       await this.ensureAuth();
+
+      // 修复：处理章节为空的情况
+      if (epId === null || epId === undefined) {
+        throw "此漫画没有可阅读的章节";
+      }
+
       const episodeId = this.normalizeEpisodeId(epId);
+      if (!episodeId) {
+        throw "无效的章节 ID";
+      }
+
       const episodeData = await this.fetchEpisodePages(episodeId);
 
       if (!this.isEpisodeAccessible(episodeData)) {
@@ -260,31 +419,24 @@ class ShonenJumpPlus extends ComicSource {
       throw "Unsupported tag namespace: " + namespace;
     },
 
-    // ========== 链接解析跳转（支持系列和章节链接） ==========
     link: {
-      domains: [
-        'shonenjumpplus.com',
-      ],
+      domains: ["shonenjumpplus.com"],
       linkToId: (url) => {
-        // 尝试匹配系列链接（如 /app/series/100179）
         let match = url.match(/\/app\/series\/(\d+)/);
         if (match) return match[1];
-        // 尝试匹配章节链接（如 /app/episode/ew140363）
         match = url.match(/\/app\/episode\/([^\/?#]+)/);
-        if (match) return 'ep:' + match[1];
+        if (match) return "ep:" + match[1];
         return null;
-      }
-    }
+      },
+    },
   };
 
-  // ---------- 辅助方法 ----------
   async ensureAuth() {
     if (!this.bearerToken || Date.now() > this.tokenExpiry) {
       await this.fetchBearerToken();
     }
   }
 
-  // 封装 graphql 请求，自动处理 410 并重试
   async graphqlRequest(operationName, variables, retry = true) {
     try {
       const payload = {
@@ -303,6 +455,17 @@ class ShonenJumpPlus extends ComicSource {
         },
         JSON.stringify(payload),
       );
+
+      if (response.status === 403) {
+        if (retry && this._retryCount < 3) {
+          this._retryCount++;
+          this._rotateUA();
+          console.warn("[ShonenJumpPlus] GraphQL 403，换 UA 重试");
+          await this._sleep(2000);
+          return this.graphqlRequest(operationName, variables, false);
+        }
+        throw new Error("GraphQL 请求被 CloudFront 拦截 (403)");
+      }
 
       if (response.status === 410) {
         if (retry && this._retryCount < 3) {
@@ -325,7 +488,9 @@ class ShonenJumpPlus extends ComicSource {
   }
 
   normalizeEpisodeId(epId) {
-    if (typeof epId === "object") return epId.id;
+    // 修复：安全处理 null 和 undefined
+    if (epId === null || epId === undefined) return null;
+    if (typeof epId === "object") return epId.id || null;
     if (typeof epId === "string" && epId.includes("/")) {
       return epId.split("/").pop();
     }
@@ -333,26 +498,55 @@ class ShonenJumpPlus extends ComicSource {
   }
 
   replaceCoverUrl(url) {
-    return (
-      (url || "").replace("{height}", "1500").replace("{width}", "1500") || ""
-    );
+    // 修复：封面为空时返回 null，避免 Venera 请求空 URL
+    if (!url) return null;
+    return url.replace("{height}", "1500").replace("{width}", "1500") || null;
   }
 
-  // 获取 bearer token，处理 410
   async fetchBearerToken(retry = true) {
+    if (this._fetchingToken) {
+      return this._fetchingToken;
+    }
+    this._fetchingToken = this._doFetchBearerToken(retry);
     try {
+      return await this._fetchingToken;
+    } finally {
+      this._fetchingToken = null;
+    }
+  }
+
+  async _doFetchBearerToken(retry) {
+    try {
+      await this._sleep(1000 + Math.random() * 2000);
+
       const response = await Network.post(
         `${this.apiBase}/user_account/access_token`,
         this.headers,
         "",
       );
 
+      if (response.status === 403) {
+        if (retry && this._retryCount < 3) {
+          this._retryCount++;
+          this.deviceId = this.generateDeviceId();
+          this._rotateUA();
+          console.warn("[ShonenJumpPlus] access_token 403，更换设备 ID 和 UA 后重试");
+          await this._sleep(3000);
+          return this._doFetchBearerToken(false);
+        }
+        throw new Error(
+          `获取 access_token 失败，状态码 403，可能被 CloudFront 拦截`,
+        );
+      }
+
       if (response.status === 410) {
         if (retry && this._retryCount < 3) {
           this._retryCount++;
-          console.warn("[ShonenJumpPlus] token 请求收到 410，尝试更新版本并重试");
+          console.warn(
+            "[ShonenJumpPlus] token 请求收到 410，尝试更新版本并重试",
+          );
           await this.init();
-          return this.fetchBearerToken(false);
+          return this._doFetchBearerToken(false);
         } else {
           throw new Error("获取 access_token 失败，状态码 410，版本过旧");
         }
@@ -468,24 +662,24 @@ class ShonenJumpPlus extends ComicSource {
     this.addUserDeviceCalled = true;
   }
 
-  // ========== 新增：从 Episode 页面抓取 Series ID ==========
   async _fetchEpisodePage(publisherId) {
     const url = `https://shonenjumpplus.com/app/episode/${publisherId}`;
     const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      "User-Agent": this._getCurrentUA(),
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
     };
     return Network.get(url, headers);
   }
 
   _extractSeriesIdFromHtml(html) {
-    // 尝试多种模式提取 series databaseId
     const patterns = [
       /"series":\{"databaseId":"(\d+)"/,
       /"series":\{"id":"[^"]*","databaseId":"(\d+)"/,
       /"databaseId":"(\d+)"/,
       /data-series-id="(\d+)"/,
       /seriesId:\s*['"](\d+)['"]/,
-      /"series":\{"__typename":"Series","id":"[^"]*","databaseId":"(\d+)"/
+      /"series":\{"__typename":"Series","id":"[^"]*","databaseId":"(\d+)"/,
     ];
     for (const pattern of patterns) {
       const match = html.match(pattern);
@@ -494,12 +688,11 @@ class ShonenJumpPlus extends ComicSource {
         return match[1];
       }
     }
-    console.warn('[ShonenJumpPlus] 无法从网页提取 seriesId');
+    console.warn("[ShonenJumpPlus] 无法从网页提取 seriesId");
     return null;
   }
 
   async getSeriesIdFromEpisode(publisherId) {
-    // 首先尝试从网页抓取
     try {
       const response = await this._fetchEpisodePage(publisherId);
       if (response.status === 200) {
@@ -513,9 +706,10 @@ class ShonenJumpPlus extends ComicSource {
       console.warn(`[ShonenJumpPlus] 抓取章节页面失败: ${e.message}`);
     }
 
-    // 网页抓取失败，尝试 GraphQL 查询（原方法，但已知会失败，保留作为备选）
     try {
-      const response = await this.graphqlRequest("EpisodeSeriesId", { episodeID: publisherId });
+      const response = await this.graphqlRequest("EpisodeSeriesId", {
+        episodeID: publisherId,
+      });
       const series = response?.data?.episode?.series;
       if (series && series.databaseId) {
         return series.databaseId;
@@ -528,7 +722,6 @@ class ShonenJumpPlus extends ComicSource {
   }
 }
 
-// GraphQL 查询（保留原有，新增 EpisodeSeriesId 作为备选）
 const GraphQLQueries = {
   SearchResult: `query SearchResult($after: String, $keyword: String!) {
         search(after: $after, first: 50, keyword: $keyword, types: [SERIES,MAGAZINE_LABEL]) {
@@ -580,7 +773,7 @@ const GraphQLQueries = {
         addUserDevice(input: $input) { isSuccess }
     }`,
   HomeCacheable: `query HomeCacheable {
-    homeSections {
+    homeSections(includePreview: true) {
       __typename
       ...DailyRankingSection
     }
@@ -648,7 +841,6 @@ const GraphQLQueries = {
       }
     }
   }`,
-  // 备选查询（可能因 publisherId 不匹配而失败）
   EpisodeSeriesId: `query EpisodeSeriesId($episodeID: String!) {
     episode(databaseId: $episodeID) {
       series {

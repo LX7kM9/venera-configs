@@ -1,17 +1,12 @@
 class ManWang extends ComicSource {
 
     name = "漫网";
-
     key = "manwang";
-
-    version = "1.2.4";
-
+    version = "1.3.4";
     minAppVersion = "1.4.0";
-
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/manwang.js";
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/manwang.js?v=1.3.4";
 
     baseUrl = "https://www.manwang.net";
-
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
     paramsAesKey = "9S8$vJnU2ANeSRoF";
@@ -39,14 +34,8 @@ class ManWang extends ComicSource {
     }
 
     settings = {
-        search_cookie: {
-            title: "搜索 Cookie（可选，效果待验证）",
-            type: "input",
-            default: "",
-        },
+        search_cookie: { title: "搜索 Cookie（可选，效果待验证）", type: "input", default: "" },
     };
-
-    // ===== 工具函数 =====
 
     requestHeaders() {
         return {
@@ -122,36 +111,118 @@ class ManWang extends ComicSource {
     }
 
     /**
-     * 从卡片中提取真实标题（多候选源，避免回退到数字 ID）。
+     * 判断一个字符串是否"像"ID（全数字），如果是就不该作为标题
      */
+    looksLikeId(s) {
+        return /^\d+$/.test(String(s || "").trim());
+    }
+
+    /**
+     * 判断 title 是否等于 id（字符串化比较）
+     */
+    titleIsId(comic) {
+        if (!comic) return true;
+        if (!comic.title) return true;
+        return String(comic.title).trim() === String(comic.id).trim();
+    }
+
+    /**
+     * ★ 多路兜底：从 HTML 原文提取标题
+     * 依次尝试多种来源，任何一条命中就返回
+     * 未来网页结构变化时，只要还有任意一条匹配就能正常工作
+     */
+    extractTitleFromHtml(html) {
+        if (!html) return "";
+        const src = String(html);
+        let title = "";
+
+        // 1) og:novel:book_name（最准确，专为书名）
+        let m = src.match(/<meta[^>]*property=["']og:novel:book_name["'][^>]*content=["']([^"']+)["']/i);
+        if (m) title = m[1].trim();
+
+        // 2) content 在 property 前面的写法
+        if (!title) {
+            m = src.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:novel:book_name["']/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 3) og:title
+        if (!title) {
+            m = src.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 4) content 在 property 前面的 og:title
+        if (!title) {
+            m = src.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 5) twitter:title
+        if (!title) {
+            m = src.match(/<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 6) h1.detail-title
+        if (!title) {
+            m = src.match(/<h1[^>]*class=["'][^"']*detail-title[^"']*["'][^>]*>([^<]+)<\/h1>/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 7) h1.comic-title / 通用 h1
+        if (!title) {
+            m = src.match(/<h1[^>]*class=["'][^"']*(?:comic|book)[^"']*title[^"']*["'][^>]*>([^<]+)<\/h1>/i);
+            if (m) title = m[1].trim();
+        }
+
+        // 8) <title> 标签，取第一个下划线或短横线前的内容
+        if (!title) {
+            m = src.match(/<title>([^<]+)<\/title>/i);
+            if (m) {
+                title = m[1].trim().split(/[_\-|—]/)[0].trim();
+            }
+        }
+
+        // 去掉站点后缀
+        title = title.replace(/\s*[-_|—]+\s*(漫网|漫画).*$/i, "").trim();
+        return title;
+    }
+
     extractCardTitle(item, link, img) {
-        // 1) img 的 alt / title
+        if (link) {
+            let t = String(link.attributes["data-title"] || "").trim();
+            if (t && !this.looksLikeId(t)) return t;
+            t = String(link.attributes["data-name"] || "").trim();
+            if (t && !this.looksLikeId(t)) return t;
+            t = String(link.attributes["data-original-title"] || "").trim();
+            if (t && !this.looksLikeId(t)) return t;
+        }
         if (img) {
             let t = String(img.attributes.alt || "").trim();
-            if (!t) t = String(img.attributes.title || "").trim();
-            if (t) return t;
+            if (t && !this.looksLikeId(t)) return t;
+            t = String(img.attributes.title || "").trim();
+            if (t && !this.looksLikeId(t)) return t;
+            t = String(img.attributes["data-original"] || "").trim();
+            if (t && !this.looksLikeId(t)) return t;
         }
-        // 2) a 的 title 属性
         if (link) {
             let t = String(link.attributes.title || "").trim();
-            if (t) return t;
-            // 3) a 的文字内容（排除“开始阅读”之类的按钮文字）
+            if (t && !this.looksLikeId(t)) return t;
             t = String(link.text || "").trim();
-            if (t && !/^(开始阅读|立即阅读|查看详情|详情|阅读)$/.test(t)) return t;
+            if (t && !this.looksLikeId(t) && !/^(开始阅读|立即阅读|查看详情|详情|阅读)$/.test(t)) return t;
         }
-        // 4) 卡片内常见标题容器
         const candidates = [
             ".slider-title", ".slide-title", ".slides-title",
             ".latest-info .title", ".latest-info h3",
             ".title", ".comic-title", ".detail-title", ".name",
-            ".comic-info h4", ".comic-info h2",
-            "h3", "h4",
+            ".comic-info h4", ".comic-info h2", "h3", "h4",
         ];
         for (let sel of candidates) {
             const el = item.querySelector(sel);
             if (el && el.text && el.text.trim()) {
                 const t = el.text.trim();
-                if (t && !/^(开始阅读|立即阅读|查看详情|详情|阅读)$/.test(t)) return t;
+                if (t && !this.looksLikeId(t) && !/^(开始阅读|立即阅读|查看详情|详情|阅读)$/.test(t)) return t;
             }
         }
         return "";
@@ -164,11 +235,12 @@ class ManWang extends ComicSource {
         const img = item.querySelector("img.lazyload") || item.querySelector("img");
         const cover = this.imgUrl(img);
         const titleEl = item.querySelector(".comic-info h4") || item.querySelector("h4") || item.querySelector(".detail-title");
-        const title = titleEl ? titleEl.text.trim() : this.extractCardTitle(item, link, img);
+        let title = titleEl ? titleEl.text.trim() : "";
+        if (!title || this.looksLikeId(title)) title = this.extractCardTitle(item, link, img);
         const subParts = [];
         const mask = item.querySelector(".comic-mask p");
         if (mask) subParts.push(mask.text.trim());
-        return new Comic({ id: id, title: title, cover: cover, subTitle: subParts.join(" · ") });
+        return new Comic({ id: id, title: title || "", cover: cover, subTitle: subParts.join(" · ") });
     }
 
     parseListCard(item) {
@@ -177,7 +249,8 @@ class ManWang extends ComicSource {
         const img = item.querySelector("img.lazyload") || item.querySelector("img");
         const cover = this.imgUrl(img);
         const titleEl = item.querySelector(".comic-info h2") || item.querySelector("h2") || item.querySelector(".detail-title") || item.querySelector("h4");
-        const title = titleEl ? titleEl.text.trim() : this.extractCardTitle(item, item, img);
+        let title = titleEl ? titleEl.text.trim() : "";
+        if (!title || this.looksLikeId(title)) title = this.extractCardTitle(item, item, img);
         const process = item.querySelector(".process");
         const desc = item.querySelector(".desc");
         const tagList = item.querySelector(".tag-list");
@@ -185,9 +258,7 @@ class ManWang extends ComicSource {
         if (process) subParts.push(process.text.trim());
         if (tagList) subParts.push(tagList.text.trim());
         return new Comic({
-            id: id,
-            title: title,
-            cover: cover,
+            id: id, title: title || "", cover: cover,
             subTitle: subParts.join(" · "),
             description: desc ? desc.text.trim() : "",
         });
@@ -198,13 +269,9 @@ class ManWang extends ComicSource {
         const img = item.querySelector("img");
         const id = this.bookIdFromHref(link ? link.attributes.href : "");
         if (!id || !img) return null;
-
         let title = this.extractCardTitle(item, link, img);
-
         return new Comic({
-            id: id,
-            title: title || id,
-            cover: this.imgUrl(img),
+            id: id, title: title || "", cover: this.imgUrl(img),
             subTitle: "首页重点推荐",
         });
     }
@@ -213,9 +280,7 @@ class ManWang extends ComicSource {
         const comic = this.parseLeadCard(item);
         if (!comic) return null;
         const mask = item.querySelector(".comic-mask p");
-        comic.subTitle = mask && mask.text.trim()
-            ? "相关推荐 · " + mask.text.trim()
-            : "相关推荐";
+        comic.subTitle = mask && mask.text.trim() ? "相关推荐 · " + mask.text.trim() : "相关推荐";
         return comic;
     }
 
@@ -223,7 +288,7 @@ class ManWang extends ComicSource {
         if (!comic || !comic.id) return;
         const existing = seen[comic.id];
         if (existing) {
-            if ((!existing.title || existing.title === existing.id) && comic.title && comic.title !== comic.id) existing.title = comic.title;
+            if (this.titleIsId(existing) && comic.title && !this.titleIsId(comic)) existing.title = comic.title;
             if (!existing.cover && comic.cover) existing.cover = comic.cover;
             if (!existing.subTitle && comic.subTitle) existing.subTitle = comic.subTitle;
             if (!existing.description && comic.description) existing.description = comic.description;
@@ -264,7 +329,7 @@ class ManWang extends ComicSource {
         doc.querySelectorAll(".layer-search-all a[href*='/book/']").forEach((a) => {
             const id = this.bookIdFromHref(a.attributes.href || "");
             const title = a.text ? a.text.trim() : "";
-            if (!id || !title) return;
+            if (!id || !title || this.looksLikeId(title)) return;
             let cover = "";
             doc.querySelectorAll("a[href*='/book/']").forEach((link) => {
                 if (cover || this.bookIdFromHref(link.attributes.href || "") !== id) return;
@@ -276,19 +341,14 @@ class ManWang extends ComicSource {
         return list;
     }
 
-    /**
-     * 从文档里抓取 id → 标题 映射。
-     * 主要来源：header 的“大家都在搜” `.layer-search-all`，服务器直出、稳定可靠。
-     */
     buildTitleMap(doc, target) {
         const map = target || {};
         if (!doc) return map;
         doc.querySelectorAll(".layer-search-all a[href*='/book/']").forEach((a) => {
             const id = this.bookIdFromHref(a.attributes.href || "");
             const t = a.text ? a.text.trim() : "";
-            if (id && t && !map[id]) map[id] = t;
+            if (id && t && !map[id] && !this.looksLikeId(t)) map[id] = t;
         });
-        // 其它位置也顺手补一份（例如推荐位 a 有 title/alt）
         doc.querySelectorAll("a[href*='/book/']").forEach((a) => {
             const id = this.bookIdFromHref(a.attributes.href || "");
             if (!id || map[id]) return;
@@ -296,41 +356,56 @@ class ManWang extends ComicSource {
             let t = "";
             if (img) t = String(img.attributes.alt || img.attributes.title || "").trim();
             if (!t) t = String(a.attributes.title || "").trim();
-            if (t) map[id] = t;
+            if (t && !this.looksLikeId(t)) map[id] = t;
         });
         return map;
     }
 
     applyTitleMap(comic, titleMap) {
         if (!comic) return;
-        if ((!comic.title || comic.title === comic.id) && titleMap && titleMap[comic.id]) {
+        if (this.titleIsId(comic) && titleMap && titleMap[comic.id]) {
             comic.title = titleMap[comic.id];
         }
     }
 
-    /**
-     * 详情页兜底：轮播卡片只有封面图，没有任何标题来源时，访问详情页抓取真实标题。
-     */
     async fetchComicTitle(id) {
         if (!id) return "";
         try {
             const res = await Network.get(this.baseUrl + "/book/" + id, this.requestHeaders());
             if (!res || res.status !== 200 || !res.body) return "";
-            const doc = new HtmlDocument(res.body);
-            let title = "";
-            const h1 = doc.querySelector("h1.detail-title");
-            if (h1 && h1.text) title = h1.text.trim();
-            if (!title) {
-                const og = doc.querySelector("meta[property='og:title']");
-                if (og) title = String(og.attributes["content"] || "").trim();
-            }
-            // 去掉 "xxx - 漫网" 之类的站点后缀
-            title = title.replace(/\s*[-_|—]+\s*(漫网|漫画).*$/i, "").trim();
-            doc.dispose();
-            return title;
+            const t = this.extractTitleFromHtml(res.body);
+            console.log(`[ManWang] 详情页 ${id} 提取标题: "${t}"`);
+            return t;
         } catch (e) {
             return "";
         }
+    }
+
+    async fixTitlesWithConcurrency(comics, concurrency = 5) {
+        const pending = comics.filter((c) => c && this.titleIsId(c));
+        if (pending.length === 0) return;
+        console.log(`[ManWang] 需要补标题的漫画: ${pending.length} 个`);
+        let idx = 0;
+        const workers = [];
+        for (let i = 0; i < Math.min(concurrency, pending.length); i++) {
+            workers.push((async () => {
+                while (true) {
+                    const cur = idx++;
+                    if (cur >= pending.length) return;
+                    const c = pending[cur];
+                    try {
+                        const t = await this.fetchComicTitle(c.id);
+                        if (t) {
+                            c.title = t;
+                            console.log(`[ManWang] 已补标题: ${c.id} → ${t}`);
+                        }
+                    } catch (e) {
+                        console.log(`[ManWang] 补标题失败 ${c.id}: ${e}`);
+                    }
+                }
+            })());
+        }
+        await Promise.all(workers);
     }
 
     async loadSearchCatalog() {
@@ -342,17 +417,14 @@ class ManWang extends ComicSource {
         catalog.forEach((comic) => { if (comic && comic.id) seen[comic.id] = comic; });
         const titleMap = {};
         catalog.forEach((comic) => {
-            if (comic && comic.id && comic.title && comic.title !== comic.id) titleMap[comic.id] = comic.title;
+            if (comic && comic.id && comic.title && !this.titleIsId(comic)) titleMap[comic.id] = comic.title;
         });
         const pending = [];
         for (let i = 0; i < paths.length; i++) {
             let doc = null;
             try {
                 const res = await Network.get(this.baseUrl + paths[i], this.requestHeaders());
-                if (!res || res.status !== 200 || !res.body) {
-                    pending.push(paths[i]);
-                    continue;
-                }
+                if (!res || res.status !== 200 || !res.body) { pending.push(paths[i]); continue; }
                 doc = new HtmlDocument(res.body);
                 this.buildTitleMap(doc, titleMap);
                 if (paths[i] === "/") {
@@ -378,11 +450,7 @@ class ManWang extends ComicSource {
                     });
                     this.searchCatalogMaxPage = Math.max(this.searchCatalogMaxPage, this.parseMaxPage(doc));
                 }
-            } catch (e) {
-                pending.push(paths[i]);
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } catch (e) { pending.push(paths[i]); } finally { if (doc) doc.dispose(); }
         }
         this.searchCatalogPendingPaths = pending;
         this.searchCatalogComplete = pending.length === 0;
@@ -400,14 +468,8 @@ class ManWang extends ComicSource {
         const compact = raw.replace(/[\s\u3000]+/g, "");
         const aliases = [raw];
         if (compact && aliases.indexOf(compact) < 0) aliases.push(compact);
-        const known = {
-            "妖神计": ["妖神记"],
-            "妖神記": ["妖神记"],
-            "古見同學有交流障礙症": ["古见同学有交流障碍症"],
-        };
-        (known[compact] || []).forEach((alias) => {
-            if (aliases.indexOf(alias) < 0) aliases.push(alias);
-        });
+        const known = { "妖神计": ["妖神记"], "妖神記": ["妖神记"], "古見同學有交流障礙症": ["古见同学有交流障碍症"] };
+        (known[compact] || []).forEach((alias) => { if (aliases.indexOf(alias) < 0) aliases.push(alias); });
         return aliases;
     }
 
@@ -435,10 +497,7 @@ class ManWang extends ComicSource {
             let doc = null;
             try {
                 const res = await Network.get(this.baseUrl + "/category/page/" + page, this.requestHeaders());
-                if (!res || res.status !== 200 || !res.body) {
-                    this.searchDeepCatalogNextPage = page;
-                    return catalog;
-                }
+                if (!res || res.status !== 200 || !res.body) { this.searchDeepCatalogNextPage = page; return catalog; }
                 doc = new HtmlDocument(res.body);
                 this.parseListDocument(doc).forEach((comic) => this.addUniqueComic(catalog, seen, comic));
                 this.searchDeepCatalogNextPage = page + 1;
@@ -446,12 +505,7 @@ class ManWang extends ComicSource {
                     this.searchDeepCatalogCache = catalog;
                     return catalog;
                 }
-            } catch (e) {
-                this.searchDeepCatalogNextPage = page;
-                return catalog;
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } catch (e) { this.searchDeepCatalogNextPage = page; return catalog; } finally { if (doc) doc.dispose(); }
         }
         this.searchDeepCatalogComplete = this.searchCatalogComplete;
         this.searchDeepCatalogCache = catalog;
@@ -463,33 +517,25 @@ class ManWang extends ComicSource {
         doc.querySelectorAll("a").forEach((a) => {
             const href = a.attributes.href || "";
             const m = href.match(/\/page\/(\d+)/);
-            if (m) {
-                const n = parseInt(m[1], 10);
-                if (!isNaN(n) && n > max) max = n;
-            }
+            if (m) { const n = parseInt(m[1], 10); if (!isNaN(n) && n > max) max = n; }
         });
         return max;
     }
 
-    // ===== 首页探索 =====
     explore = [
         {
             title: this.name,
             type: "singlePageWithMultiPart",
             load: async () => {
                 const result = {};
-                // ★ 全页共享的 id → 标题 映射（首页 header “大家都在搜” 直出，稳定可靠）
                 const titleMap = {};
                 let homeDoc = null;
                 try {
                     const res = await Network.get(this.baseUrl + "/", this.requestHeaders());
                     if (res.status !== 200) return result;
                     homeDoc = new HtmlDocument(res.body);
-
-                    // ★ 先构建 id→title 映射
                     this.buildTitleMap(homeDoc, titleMap);
 
-                    // 轮播推荐（#slider 卡片通常只有封面图，没有标题文本，用 titleMap 立刻填上）
                     const banner = [];
                     const bannerSeen = {};
                     homeDoc.querySelectorAll("#slider .slides li").forEach((item) => {
@@ -499,7 +545,6 @@ class ManWang extends ComicSource {
                     });
                     if (banner.length > 0) result["轮播推荐"] = banner;
 
-                    // 首页面板（每个 panel 内含左侧重点推荐 + 右侧卡片列表）
                     const panels = homeDoc.querySelectorAll(".panel-comic");
                     for (let i = 0; i < panels.length; i++) {
                         const titleEl = panels[i].querySelector(".mod-title span");
@@ -509,12 +554,8 @@ class ManWang extends ComicSource {
                         if (list.length > 0) result[title] = list;
                     }
                 } catch (e) {
-                    // 首页失败时仍返回已成功解析的部分
-                } finally {
-                    if (homeDoc) homeDoc.dispose();
-                }
+                } finally { if (homeDoc) homeDoc.dispose(); }
 
-                // 这些页面均为当前站点导航中的真实列表页，用作首页的更多分区。
                 const extraParts = [
                     ["最新更新", "/custom/update"],
                     ["人气排行", "/custom/hot"],
@@ -529,57 +570,63 @@ class ManWang extends ComicSource {
                         const res = await Network.get(this.baseUrl + path, this.requestHeaders());
                         if (res.status !== 200) continue;
                         doc = new HtmlDocument(res.body);
-                        // 顺手扩充 titleMap
                         this.buildTitleMap(doc, titleMap);
                         const list = this.parseListDocument(doc);
                         list.forEach((c) => this.applyTitleMap(c, titleMap));
                         if (list.length > 0) result[title] = list;
                     } catch (e) {
-                        // 单个扩展分区失败不影响其他首页分区
-                    } finally {
-                        if (doc) doc.dispose();
-                    }
+                    } finally { if (doc) doc.dispose(); }
                 }
 
-                // ★ 轮播推荐标题回填（兜底）
-                // 1) 用其它分区里已抓到的真实标题补全
-                if (result["轮播推荐"] && result["轮播推荐"].length > 0) {
-                    Object.keys(result).forEach((key) => {
-                        if (key === "轮播推荐") return;
-                        const list = result[key];
-                        if (!Array.isArray(list)) return;
-                        list.forEach((c) => {
-                            if (c && c.id && c.title && c.title !== c.id && !titleMap[c.id]) {
-                                titleMap[c.id] = c.title;
-                            }
-                        });
+                Object.keys(result).forEach((key) => {
+                    const list = result[key];
+                    if (!Array.isArray(list)) return;
+                    list.forEach((c) => {
+                        if (c && c.id && c.title && !this.titleIsId(c) && !titleMap[c.id]) {
+                            titleMap[c.id] = c.title;
+                        }
                     });
-                    result["轮播推荐"].forEach((c) => this.applyTitleMap(c, titleMap));
+                });
+                Object.keys(result).forEach((key) => {
+                    const list = result[key];
+                    if (!Array.isArray(list)) return;
+                    list.forEach((c) => this.applyTitleMap(c, titleMap));
+                });
 
-                    // 2) 依然没有标题的，再走详情页网络兜底
-                    const stillNeedFetch = result["轮播推荐"].filter(
-                        (c) => c && (!c.title || c.title === c.id)
-                    );
-                    if (stillNeedFetch.length > 0) {
-                        await Promise.all(stillNeedFetch.map(async (c) => {
-                            const t = await this.fetchComicTitle(c.id);
-                            if (t) c.title = t;
-                        }));
-                    }
+                const allNeedingFetch = [];
+                const seenIds = {};
+                Object.keys(result).forEach((key) => {
+                    const list = result[key];
+                    if (!Array.isArray(list)) return;
+                    list.forEach((c) => {
+                        if (c && c.id && this.titleIsId(c) && !seenIds[c.id]) {
+                            seenIds[c.id] = true;
+                            allNeedingFetch.push(c);
+                        }
+                    });
+                });
+                if (allNeedingFetch.length > 0) {
+                    await this.fixTitlesWithConcurrency(allNeedingFetch, 5);
                 }
+
+                Object.keys(result).forEach((key) => {
+                    const list = result[key];
+                    if (!Array.isArray(list)) return;
+                    list.forEach((c) => {
+                        if (c && !c.title) c.title = c.id;
+                    });
+                });
 
                 return result;
             },
         },
     ];
 
-    // ===== 分类 =====
     category = {
         title: this.name,
         parts: [
             {
-                name: "题材",
-                type: "fixed",
+                name: "题材", type: "fixed",
                 categories: [
                     "全部", "热血", "恋爱", "奇幻", "冒险", "搞笑", "都市", "古风",
                     "悬疑", "穿越", "校园", "治愈", "科幻", "玄幻", "修仙", "少年",
@@ -592,39 +639,26 @@ class ManWang extends ComicSource {
                     "2612", "2575", "2615", "2597", "2618",
                 ],
             },
-            {
-                name: "状态",
-                type: "fixed",
-                categories: ["连载中", "已完结"],
-                itemType: "category",
-                categoryParams: ["1", "2"],
-            },
+            { name: "状态", type: "fixed", categories: ["连载中", "已完结"], itemType: "category", categoryParams: ["1", "2"] },
         ],
         enableRankingPage: false,
     };
 
-    // ===== 分类漫画加载 =====
     categoryComics = {
         load: async (category, param, options, page) => {
             let doc = null;
             const safePage = Math.max(1, parseInt(page, 10) || 1);
             try {
                 let base;
-                if (category === "连载中" || category === "已完结") {
-                    base = "/category/finish/" + param;
-                } else if (!param) {
-                    base = "/category";
-                } else {
-                    base = "/category/tags/" + param;
-                }
+                if (category === "连载中" || category === "已完结") base = "/category/finish/" + param;
+                else if (!param) base = "/category";
+                else base = "/category/tags/" + param;
                 const path = safePage <= 1 ? base : base + "/page/" + safePage;
                 const res = await Network.get(this.baseUrl + path, this.requestHeaders());
                 if (!res || res.status !== 200) return { comics: [], maxPage: safePage };
                 doc = new HtmlDocument(res.body);
-
                 const titleMap = {};
                 this.buildTitleMap(doc, titleMap);
-
                 const comics = [];
                 const seen = {};
                 doc.querySelectorAll(".comic-item").forEach((item) => {
@@ -632,17 +666,13 @@ class ManWang extends ComicSource {
                     this.applyTitleMap(comic, titleMap);
                     this.addUniqueComic(comics, seen, comic);
                 });
-                const maxPage = this.parseMaxPage(doc);
-                return { comics: comics, maxPage: maxPage };
+                return { comics: comics, maxPage: this.parseMaxPage(doc) };
             } catch (e) {
                 return { comics: [], maxPage: page };
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } finally { if (doc) doc.dispose(); }
         },
     };
 
-    // ===== 搜索 =====
     search = {
         load: async (keyword, options, page) => {
             let doc = null;
@@ -656,15 +686,10 @@ class ManWang extends ComicSource {
                     this.buildTitleMap(doc, titleMap);
                     const comics = this.parseListDocument(doc);
                     comics.forEach((c) => this.applyTitleMap(c, titleMap));
-                    if (comics.length > 0) {
-                        return { comics: comics, maxPage: this.parseMaxPage(doc) };
-                    }
+                    if (comics.length > 0) return { comics: comics, maxPage: this.parseMaxPage(doc) };
                 }
             } catch (e) {
-                // 站点搜索接口失败时继续尝试已取证列表兜底
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } finally { if (doc) doc.dispose(); }
 
             if (safePage > 1) return { comics: [], maxPage: 1 };
             try {
@@ -674,13 +699,10 @@ class ManWang extends ComicSource {
                 const deepCatalog = await this.loadSearchCatalogDeep(keyword);
                 comics = this.filterSearchCatalog(deepCatalog, keyword);
                 return { comics: comics, maxPage: 1 };
-            } catch (e) {
-                return { comics: [], maxPage: 1 };
-            }
+            } catch (e) { return { comics: [], maxPage: 1 }; }
         },
     };
 
-    // ===== 漫画详情与章节 =====
     comic = {
         loadInfo: async (id) => {
             let doc = null;
@@ -688,29 +710,32 @@ class ManWang extends ComicSource {
             if (!comicId) throw "Invalid comic id";
             const res = await Network.get(this.baseUrl + "/book/" + comicId, this.requestHeaders());
             if (!res || res.status !== 200) throw "Comic not found";
+
+            const htmlTitle = this.extractTitleFromHtml(res.body);
+            console.log(`[ManWang] loadInfo ${comicId} 正则提取标题: "${htmlTitle}"`);
+
             try {
                 doc = new HtmlDocument(res.body);
-
-                const titleEl = doc.querySelector("h1.detail-title");
-                const title = titleEl ? titleEl.text.trim() : id;
+                let title = htmlTitle;
+                if (!title) {
+                    const titleEl = doc.querySelector("h1.detail-title");
+                    title = titleEl ? titleEl.text.trim() : "";
+                }
+                if (!title) title = comicId;
 
                 const coverImg = doc.querySelector(".mod-banner img.lazyload")
                     || doc.querySelector(".banner-img img")
                     || doc.querySelector(".mod-detail-info img.lazyload");
                 const cover = this.imgUrl(coverImg);
-
                 const authorEl = doc.querySelector("p.author");
                 const author = authorEl ? authorEl.text.trim() : "";
-
-                const description = doc.querySelector(".detail-desc")
-                    ? doc.querySelector(".detail-desc").text.trim() : "";
+                const description = doc.querySelector(".detail-desc") ? doc.querySelector(".detail-desc").text.trim() : "";
 
                 const tags = [];
                 doc.querySelectorAll(".detail-info-btags .tag-list a").forEach((a) => {
                     const t = a.text.trim();
                     if (t) tags.push(t);
                 });
-
                 const updateEl = doc.querySelector(".detail-info-btips .tips b");
                 const updateTime = updateEl ? updateEl.text.trim() : "";
 
@@ -720,7 +745,6 @@ class ManWang extends ComicSource {
                     this.addUniqueComic(recommend, recommendSeen, this.parseRelatedCard(item));
                 });
 
-                // 章节列表：页面按「最新 → 最老」排列，先按页面顺序收集，再反转
                 const rawChapters = [];
                 const seenChapterIds = new Set();
                 doc.querySelectorAll("#j_chapter_list li.item").forEach((li) => {
@@ -737,22 +761,12 @@ class ManWang extends ComicSource {
                 }
 
                 return new ComicDetails({
-                    title: title,
-                    subTitle: author,
-                    cover: cover,
-                    description: description,
-                    tags: { 题材: tags },
-                    chapters: chapters,
-                    isFavorite: false,
-                    subId: comicId,
-                    thumbnails: cover ? [cover] : [],
-                    recommend: recommend,
-                    updateTime: updateTime,
+                    title: title, subTitle: author, cover: cover, description: description,
+                    tags: { 题材: tags }, chapters: chapters, isFavorite: false, subId: comicId,
+                    thumbnails: cover ? [cover] : [], recommend: recommend, updateTime: updateTime,
                     url: this.baseUrl + "/book/" + comicId + "/",
                 });
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } finally { if (doc) doc.dispose(); }
         },
 
         loadEp: async (comicId, epId) => {
@@ -761,10 +775,7 @@ class ManWang extends ComicSource {
             if (!safeComicId || !chapterId) return { images: [] };
             let doc = null;
             try {
-                const res = await Network.get(
-                    this.baseUrl + "/chapter/" + safeComicId + "-" + chapterId,
-                    this.requestHeaders()
-                );
+                const res = await Network.get(this.baseUrl + "/chapter/" + safeComicId + "-" + chapterId, this.requestHeaders());
                 if (res.status !== 200) return { images: [] };
                 const body = res.body;
                 const pm = body.match(/params\s*=\s*([\"'])([^\"']+)\1/);
@@ -776,17 +787,10 @@ class ManWang extends ComicSource {
                 const seenImages = {};
                 (Array.isArray(data.images) ? data.images : []).forEach((u) => {
                     const image = String(u || "").trim();
-                    if (image && !seenImages[image]) {
-                        seenImages[image] = true;
-                        images.push(image);
-                    }
+                    if (image && !seenImages[image]) { seenImages[image] = true; images.push(image); }
                 });
                 return { images: images };
-            } catch (e) {
-                return { images: [] };
-            } finally {
-                if (doc) doc.dispose();
-            }
+            } catch (e) { return { images: [] }; } finally { if (doc) doc.dispose(); }
         },
 
         onImageLoad: (url, comicId, epId) => {
@@ -797,8 +801,7 @@ class ManWang extends ComicSource {
                 : this.baseUrl + "/";
             const cfg = {
                 headers: {
-                    "User-Agent": this.ua,
-                    "Referer": referer,
+                    "User-Agent": this.ua, "Referer": referer,
                     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
                 },
             };

@@ -66,7 +66,7 @@
         "name": "漫网",
         "fileName": "manwang.js",
         "key": "manwang",
-        "version": "1.2.4",
+        "version": "1.3.4",
         "description": "非个人自制，修复发现页标题显示异常问题，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -374,7 +374,7 @@
         "name": "少年ジャンプ＋",
         "fileName": "shonen_jump_plus.js",
         "key": "shonen_jump_plus",
-        "version": "1.2.1",
+        "version": "1.3.1",
         "description": "经ai修复后功能可用，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
