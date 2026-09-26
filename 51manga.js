@@ -1,65 +1,57 @@
-/** @type {import('./_venera_.js')} */
+const AES_SBOX = (function () {
+  const rotl8 = (x, n) => ((x << n) | (x >> (8 - n))) & 0xff;
+  const xtime = (a) => ((a << 1) ^ ((a & 0x80) ? 0x1b : 0)) & 0xff;
+  const mul = (a, b) => {
+    let r = 0;
+    while (b) {
+      if (b & 1) r ^= a;
+      a = xtime(a);
+      b >>= 1;
+    }
+    return r & 0xff;
+  };
+  const pow = (a, n) => {
+    let r = 1;
+    while (n) {
+      if (n & 1) r = mul(r, a);
+      a = mul(a, a);
+      n >>= 1;
+    }
+    return r;
+  };
+  const inv = new Uint8Array(256);
+  const sbox = new Uint8Array(256);
+  for (let i = 1; i < 256; i++) inv[i] = pow(i, 254);
+  for (let i = 0; i < 256; i++) {
+    const x = inv[i];
+    sbox[i] = (rotl8(x, 0) ^ rotl8(x, 1) ^ rotl8(x, 2) ^ rotl8(x, 3) ^ rotl8(x, 4) ^ 0x63) & 0xff;
+  }
+  return sbox;
+})();
 
-/**
- * 51漫画 (m.51manga.com)
- *
- * 章节阅读页的图片列表被 AES-128-CBC 加密后放在页面里的 `params` 变量里，
- * 已逆向出算法: key = "9S8$vJnU2ANeSRoF" (AES-128)，IV = 密文 base64 解码后的前 16 字节，
- * 真正密文 = 解码后第 16 字节往后的部分，PKCS7 填充。
- * 这里内置了一份不依赖任何第三方库的纯 JS AES 实现来完成解密。
- *
- * 主要页面结构（手机版 m.51manga.com）：
- * - 首页 "/"：多个 .panel 分区（国产漫画/日本漫画/韩国漫画/欧美漫画），每个 .comic-item 是一本漫画
- * - 详情页 "/mh/{id}"：标题 .comic_name h1.name，封面 .comic_cover 的 background-image，
- *   简介 .metas-desc p，章节 .chapter-list a[href*="/show/"]
- * - 章节页 "/show/{epId}.html"：加密的 params 变量
- * - 分类页 "/category"：地区 /category/list/{n}、标签 /category/tags/{id}、进度 /category/finish/{n}，
- *   分页 /category/.../page/{n}
- * - 搜索 "/search?key={keyword}"，分页 /search/{keyword}/{page}
- */
-
-// ---- 纯 JS AES-128-CBC 实现（仅用于解密） ----
-
-const AES_SBOX = [
-  0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
-  0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
-  0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
-  0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
-  0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
-  0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
-  0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
-  0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
-  0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
-  0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
-  0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
-  0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
-  0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
-  0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
-  0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
-  0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
-];
-const AES_RCON = [0x8d,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36];
 const AES_RSBOX = (function () {
-  let r = new Array(256);
+  const r = new Uint8Array(256);
   for (let i = 0; i < 256; i++) r[AES_SBOX[i]] = i;
   return r;
 })();
 
+const AES_RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+
 function aesKeyExpansion(key) {
-  const Nk = 4, Nr = 10, Nb = 4;
-  const w = new Array(Nb * (Nr + 1) * 4);
+  const Nk = 4, Nb = 4, Nr = 10;
+  const w = new Uint8Array(Nb * (Nr + 1) * 4);
   for (let i = 0; i < 4 * Nk; i++) w[i] = key[i];
-  const temp = new Array(4);
+  const t = new Uint8Array(4);
   for (let i = Nk; i < Nb * (Nr + 1); i++) {
-    for (let j = 0; j < 4; j++) temp[j] = w[(i - 1) * 4 + j];
+    for (let j = 0; j < 4; j++) t[j] = w[(i - 1) * 4 + j];
     if (i % Nk === 0) {
-      const t0 = temp[0];
-      temp[0] = AES_SBOX[temp[1]] ^ AES_RCON[i / Nk];
-      temp[1] = AES_SBOX[temp[2]];
-      temp[2] = AES_SBOX[temp[3]];
-      temp[3] = AES_SBOX[t0];
+      const t0 = t[0];
+      t[0] = AES_SBOX[t[1]] ^ AES_RCON[i / Nk];
+      t[1] = AES_SBOX[t[2]];
+      t[2] = AES_SBOX[t[3]];
+      t[3] = AES_SBOX[t0];
     }
-    for (let j = 0; j < 4; j++) w[i * 4 + j] = w[(i - Nk) * 4 + j] ^ temp[j];
+    for (let j = 0; j < 4; j++) w[i * 4 + j] = w[(i - Nk) * 4 + j] ^ t[j];
   }
   return w;
 }
@@ -73,114 +65,103 @@ function gmul(a, b) {
     if (hi) a ^= 0x1b;
     b >>= 1;
   }
-  return p;
+  return p & 0xff;
 }
 
-function aesAddRoundKey(state, w, round) {
-  for (let c = 0; c < 4; c++)
-    for (let r = 0; r < 4; r++) state[r][c] ^= w[round * 16 + c * 4 + r];
-}
-
-function aesInvSubBytes(state) {
-  for (let r = 0; r < 4; r++)
-    for (let c = 0; c < 4; c++) state[r][c] = AES_RSBOX[state[r][c]];
-}
-
-function aesInvShiftRows(state) {
-  for (let r = 1; r < 4; r++) {
-    const row = state[r].slice();
-    for (let c = 0; c < 4; c++) state[r][c] = row[(c - r + 4) % 4];
-  }
-}
-
-function aesInvMixColumns(state) {
-  for (let c = 0; c < 4; c++) {
-    const a0 = state[0][c], a1 = state[1][c], a2 = state[2][c], a3 = state[3][c];
-    state[0][c] = gmul(a0,0x0e) ^ gmul(a1,0x0b) ^ gmul(a2,0x0d) ^ gmul(a3,0x09);
-    state[1][c] = gmul(a0,0x09) ^ gmul(a1,0x0e) ^ gmul(a2,0x0b) ^ gmul(a3,0x0d);
-    state[2][c] = gmul(a0,0x0d) ^ gmul(a1,0x09) ^ gmul(a2,0x0e) ^ gmul(a3,0x0b);
-    state[3][c] = gmul(a0,0x0b) ^ gmul(a1,0x0d) ^ gmul(a2,0x09) ^ gmul(a3,0x0e);
-  }
-}
-
-function aesDecryptBlock(inputBytes, w) {
+// AES 状态按列主序存放：state[r][c] 对应输入字节 state[i%4][floor(i/4)]，
+// 轮密钥 w 的下标为 round*16 + 4*c + r。
+function aesDecryptBlock(input, w) {
   const Nr = 10;
-  const state = [[], [], [], []];
-  for (let i = 0; i < 16; i++) state[i % 4][Math.floor(i / 4)] = inputBytes[i];
-
-  aesAddRoundKey(state, w, Nr);
+  const s = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+  for (let i = 0; i < 16; i++) s[i % 4][Math.floor(i / 4)] = input[i];
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) s[r][c] ^= w[Nr * 16 + c * 4 + r];
   for (let round = Nr - 1; round >= 1; round--) {
-    aesInvShiftRows(state);
-    aesInvSubBytes(state);
-    aesAddRoundKey(state, w, round);
-    aesInvMixColumns(state);
+    for (let r = 1; r < 4; r++) {
+      const row = s[r].slice();
+      for (let c = 0; c < 4; c++) s[r][c] = row[(c - r + 4) % 4];
+    }
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) s[r][c] = AES_RSBOX[s[r][c]];
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) s[r][c] ^= w[round * 16 + c * 4 + r];
+    for (let c = 0; c < 4; c++) {
+      const a0 = s[0][c], a1 = s[1][c], a2 = s[2][c], a3 = s[3][c];
+      s[0][c] = gmul(a0, 0x0e) ^ gmul(a1, 0x0b) ^ gmul(a2, 0x0d) ^ gmul(a3, 0x09);
+      s[1][c] = gmul(a0, 0x09) ^ gmul(a1, 0x0e) ^ gmul(a2, 0x0b) ^ gmul(a3, 0x0d);
+      s[2][c] = gmul(a0, 0x0d) ^ gmul(a1, 0x09) ^ gmul(a2, 0x0e) ^ gmul(a3, 0x0b);
+      s[3][c] = gmul(a0, 0x0b) ^ gmul(a1, 0x0d) ^ gmul(a2, 0x09) ^ gmul(a3, 0x0e);
+    }
   }
-  aesInvShiftRows(state);
-  aesInvSubBytes(state);
-  aesAddRoundKey(state, w, 0);
-
-  const out = new Array(16);
-  for (let i = 0; i < 16; i++) out[i] = state[i % 4][Math.floor(i / 4)];
+  for (let r = 1; r < 4; r++) {
+    const row = s[r].slice();
+    for (let c = 0; c < 4; c++) s[r][c] = row[(c - r + 4) % 4];
+  }
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) s[r][c] = AES_RSBOX[s[r][c]];
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) s[r][c] ^= w[c * 4 + r];
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) out[i] = s[i % 4][Math.floor(i / 4)];
   return out;
 }
 
-function aes128CbcDecrypt(cipherBytes, keyBytes, ivBytes) {
-  const w = aesKeyExpansion(keyBytes);
-  const out = [];
-  let prevBlock = ivBytes;
-  for (let off = 0; off < cipherBytes.length; off += 16) {
-    const block = cipherBytes.slice(off, off + 16);
-    const decrypted = aesDecryptBlock(block, w);
-    for (let i = 0; i < 16; i++) out.push(decrypted[i] ^ prevBlock[i]);
-    prevBlock = block;
+function aes128CbcDecrypt(cipher, key, iv) {
+  const w = aesKeyExpansion(key);
+  const out = new Uint8Array(cipher.length);
+  let prev = iv;
+  for (let off = 0; off < cipher.length; off += 16) {
+    const block = cipher.subarray(off, off + 16);
+    const dec = aesDecryptBlock(block, w);
+    for (let i = 0; i < 16; i++) out[off + i] = dec[i] ^ prev[i];
+    prev = block;
   }
-  const padLen = out[out.length - 1];
-  if (padLen > 0 && padLen <= 16) out.length -= padLen;
   return out;
 }
 
+// PKCS#7 去填充；填充非法时原样返回（避免把正常数据截断）。
+// 必须返回新数组：subarray 会共享底层 buffer，交给 Convert.decodeUtf8 时会带上填充字节。
+function stripPkcs7(bytes) {
+  if (!bytes || bytes.length === 0) return bytes;
+  const pad = bytes[bytes.length - 1];
+  if (pad < 1 || pad > 16 || pad > bytes.length) return bytes;
+  for (let i = bytes.length - pad; i < bytes.length; i++) if (bytes[i] !== pad) return bytes;
+  return bytes.slice(0, bytes.length - pad);
+}
+
+// UTF-8 解码（手写，不使用已废弃的 escape/unescape）
+function decodeUtf8(bytes) {
+  let out = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const b1 = bytes[i];
+    if (b1 < 0x80) { out += String.fromCharCode(b1); i += 1; }
+    else if (b1 >= 0xc0 && b1 < 0xe0) {
+      out += String.fromCharCode(((b1 & 0x1f) << 6) | (bytes[i + 1] & 0x3f)); i += 2;
+    } else if (b1 >= 0xe0 && b1 < 0xf0) {
+      out += String.fromCharCode(((b1 & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f)); i += 3;
+    } else {
+      const cp = ((b1 & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f);
+      const v = cp - 0x10000;
+      out += String.fromCharCode(0xd800 + (v >> 10)) + String.fromCharCode(0xdc00 + (v & 0x3ff));
+      i += 4;
+    }
+  }
+  return out;
+}
+
+// base64 -> Uint8Array（兼容 base64url 与缺失的结尾填充）
 function base64ToBytes(b64) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  b64 = b64.replace(/=+$/, "");
-  const bytes = [];
-  let buffer = 0,
-    bits = 0;
-  for (let i = 0; i < b64.length; i++) {
-    const idx = chars.indexOf(b64[i]);
+  const CH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const s = String(b64 == null ? "" : b64).replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  const out = new Uint8Array((s.length * 3) >> 2);
+  let o = 0, buf = 0, bits = 0;
+  for (let i = 0; i < s.length; i++) {
+    const idx = CH.indexOf(s.charAt(i));
     if (idx < 0) continue;
-    buffer = (buffer << 6) | idx;
+    buf = (buf << 6) | idx;
     bits += 6;
     if (bits >= 8) {
       bits -= 8;
-      bytes.push((buffer >> bits) & 0xff);
+      out[o++] = (buf >> bits) & 0xff;
     }
   }
-  return bytes;
-}
-
-function utf8BytesToString(bytes) {
-  let str = "";
-  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-  return decodeURIComponent(escape(str));
-}
-
-const AES_KEY_STR = "9S8$vJnU2ANeSRoF";
-
-// 记录最近一次实际访问的章节页 URL，供 onImageLoad 组装精确的 Referer
-let lastChapterPageUrl = "";
-
-// 解密页面里的 `params` 变量，返回解析后的 JSON 对象
-function decryptParams(paramsB64) {
-  const allBytes = base64ToBytes(paramsB64);
-  const iv = allBytes.slice(0, 16);
-  const ciphertext = allBytes.slice(16);
-  const keyBytes = [];
-  for (let i = 0; i < AES_KEY_STR.length; i++) {
-    keyBytes.push(AES_KEY_STR.charCodeAt(i));
-  }
-  const plainBytes = aes128CbcDecrypt(ciphertext, keyBytes, iv);
-  const plainStr = utf8BytesToString(plainBytes);
-  return JSON.parse(plainStr);
+  return out.subarray(0, o);
 }
 
 // ---- 源定义 ----
@@ -188,63 +169,236 @@ function decryptParams(paramsB64) {
 class Manga51 extends ComicSource {
   name = "51漫画";
   key = "manga51";
-  version = "1.2.0"; // 升级版本，增加复制链接和链接解析
+  version = "1.3.0"; // 在 1.2.0 基础上移植 manga51 增强能力
   minAppVersion = "1.6.0";
 
   // 更新链接，请替换为你自己的托管地址
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/51manga.js";
 
+  // 移动站结构最简（.panel / .comic-item / .chapter-list），列表、详情、章节都走它
+  static host = "https://m.51manga.com";
+  // PC 站仅用于图片 Referer（实测 m / www 均可，固定一个更稳）
+  static webHost = "https://www.51manga.com";
+  static imgReferer = "https://www.51manga.com/";
+  static imgCdn = "https://img1.baipiaoguai.org";
+  static aesKey = "9S8$vJnU2ANeSRoF";
+  static ua =
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+  // 地区：/category/list/{1..4}（实测标题依次为 国产/日本/韩国/欧美漫画）
+  static regions = [
+    ["全部", ""],
+    ["国产漫画", "list/1"],
+    ["日本漫画", "list/2"],
+    ["韩国漫画", "list/3"],
+    ["欧美漫画", "list/4"],
+  ];
+  // 题材：/category/tags/{867..877}（分类页筛选区实测全量 11 个；站点自身 872/873 同名“恋爱”）
+  static tags = [
+    ["全部", ""],
+    ["科幻", "tags/867"],
+    ["后宫", "tags/868"],
+    ["机甲", "tags/869"],
+    ["都市", "tags/870"],
+    ["恋爱生活", "tags/871"],
+    ["恋爱", "tags/872"],
+    ["恋爱（2）", "tags/873"],
+    ["其他", "tags/874"],
+    ["推理悬疑", "tags/875"],
+    ["魔法", "tags/876"],
+    ["奇幻", "tags/877"],
+  ];
+  // 进度：/category/finish/{1,2}（实测 finish/1 为“连载”，finish/2 为“完结”）
+  static statuses = [
+    ["全部", ""],
+    ["连载中", "finish/1"],
+    ["已完结", "finish/2"],
+  ];
+
   get baseUrl() {
-    return "https://m.51manga.com";
+    return Manga51.host;
   }
 
   get headers() {
     return {
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "User-Agent": Manga51.ua,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9",
+      Referer: Manga51.webHost + "/",
     };
   }
 
-  // 从 .comic-item 的 <a href="/mh/xxx"> 中解析漫画信息
+  // 图片 CDN 强制校验 Referer：实测不带 Referer 与以图片域名为 Referer 都返回 403
+  get imageHeaders() {
+    return {
+      "User-Agent": Manga51.ua,
+      Referer: Manga51.imgReferer,
+      Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9",
+    };
+  }
+
+  // ---------- 通用工具 ----------
+
+  trim(v) {
+    return String(v == null ? "" : v).trim();
+  }
+
+  isPlaceholderImage(u) {
+    const s = this.trim(u).toLowerCase();
+    if (!s) return true;
+    if (s.indexOf("data:image/") === 0) return true;
+    if (s.indexOf("placeholder") >= 0) return true;
+    if (/\.svg($|\?)/.test(s)) return true;
+    return false;
+  }
+
+  absolutize(u, base) {
+    const s = this.trim(u);
+    if (!s) return "";
+    if (s.indexOf("//") === 0) return "https:" + s;
+    if (s.indexOf("http://") === 0 || s.indexOf("https://") === 0) return s;
+    return (base || Manga51.host) + (s.charAt(0) === "/" ? s : "/" + s);
+  }
+
+  // 站点是 layui 懒加载模板：lay-src / data-src 才是真实图，src 可能是占位图，所以后取 src
+  imageFromEl(el) {
+    if (!el || !el.attributes) return "";
+    const a = el.attributes;
+    const order = [a["lay-src"], a["data-src"], a["data-original"], a["data-echo"], a["src"]];
+    for (const c of order) {
+      const s = this.trim(c);
+      if (!s || this.isPlaceholderImage(s)) continue;
+      return this.absolutize(s, Manga51.host);
+    }
+    return "";
+  }
+
+  comicIdFromHref(href) {
+    const m = /\/mh\/([A-Za-z0-9]+)/.exec(this.trim(href));
+    return m ? m[1] : "";
+  }
+
+  // 漫画 ID 规范化：接受裸 id 或完整 /mh/ 链接
+  normalizeComicId(input) {
+    const s = this.trim(input);
+    if (!s) return "";
+    const m = /\/mh\/([A-Za-z0-9]+)/.exec(s);
+    if (m) return m[1];
+    return /^[A-Za-z0-9]{4,32}$/.test(s) ? s : "";
+  }
+
+  // 章节 ID 规范化。站点只认 /show/{裸id}.html：
+  // 实测 /show/{id} 与 /show/{id}.html.html 都是 404，所以历史里存过完整 URL／带扩展名的值必须先剥掉。
+  normalizeEpId(input) {
+    const s = this.trim(input);
+    if (!s) return "";
+    const m = /\/show\/([A-Za-z0-9]+)/.exec(s);
+    if (m) return m[1];
+    const bare = s.replace(/\.html?$/i, "");
+    return /^[A-Za-z0-9]{4,32}$/.test(bare) ? bare : "";
+  }
+
+  // 章节图片相对路径的兜底拼接
+  imageUrl(src) {
+    const s = this.trim(src);
+    if (!s) return "";
+    if (s.indexOf("//") === 0) return "https:" + s;
+    if (s.indexOf("http://") === 0 || s.indexOf("https://") === 0) return s;
+    return Manga51.imgCdn + (s.charAt(0) === "/" ? s : "/" + s);
+  }
+
+  // 章节载荷：base64 解码后前 16 字节为 IV，其余为 AES-128-CBC 密文，明文是 PKCS#7 填充的 JSON。
+  // 优先用 Venera 官方 Convert.decryptAesCbc（官方 ccc.js 同款），不可用时回退到内置纯 JS 实现。
+  decryptParams(b64) {
+    const all = base64ToBytes(b64);
+    if (all.length <= 32 || all.length % 16 !== 0) throw new Error("载荷长度异常");
+    const iv = all.slice(0, 16);
+    const ct = all.slice(16);
+    const key = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) key[i] = Manga51.aesKey.charCodeAt(i);
+    let text = null;
+    if (typeof Convert !== "undefined" && Convert && typeof Convert.decryptAesCbc === "function") {
+      try {
+        const plain = new Uint8Array(Convert.decryptAesCbc(ct.buffer, key.buffer, iv.buffer));
+        text = Convert.decodeUtf8(stripPkcs7(plain).buffer);
+      } catch (e) {
+        text = null;
+      }
+    }
+    if (text == null) text = decodeUtf8(stripPkcs7(aes128CbcDecrypt(ct, key, iv)));
+    return JSON.parse(text);
+  }
+
+  // ---------- 分页状态 ----------
+
+  // 站点在页码越界时不会返回空页，而是回落成首页：页面出现 5 个 .panel、容器 id 变成
+  // comic-list-1，且完全没有 <cite>。实测 /category/page/51 与 /search/爱/11 都是这样。
+  // 若不识别，会把首页 24 张无关漫画当成搜索结果，并把 maxPage 当成当前页从而无限翻页。
+  isHomeFallback(html) {
+    return html.indexOf('id="comic-list-1"') >= 0 && html.indexOf('id="comic-list"') < 0;
+  }
+
+  // 统一用 <cite>当前页/总页数</cite> 判定；返回 { end, maxPage }
+  pageState(html, page, fallbackMaxPage) {
+    const m = /<cite>\s*(\d+)\s*\/\s*(\d+)\s*<\/cite>/.exec(html);
+    if (m) {
+      const cur = parseInt(m[1], 10);
+      const total = parseInt(m[2], 10);
+      if (!isNaN(cur) && !isNaN(total)) {
+        const max = total > 0 ? total : 1;
+        // 实测 /category/tags/867/page/32 -> <cite>32/31</cite> 且列表为空：越界时 cur > total
+        return { end: cur > total, maxPage: max };
+      }
+    }
+    if (this.isHomeFallback(html)) return { end: true, maxPage: page > 1 ? page - 1 : 1 };
+    return { end: false, maxPage: fallbackMaxPage };
+  }
+
+  // ---------- 卡片解析 ----------
+
   parseComic(e) {
-    let href = e.attributes["href"] || "";
-    let m = href.match(/\/mh\/([A-Za-z0-9]+)/);
-    if (!m) return null;
-    let id = m[1];
-
-    let img = e.querySelector("img");
-    let cover = img
-      ? img.attributes["src"] ||
-        img.attributes["lay-src"] ||
-        img.attributes["data-src"] ||
-        ""
-      : "";
-
+    if (!e || !e.attributes) return null;
+    const id = this.comicIdFromHref(e.attributes.href);
+    if (!id) return null;
+    const img = e.querySelector("img");
     let title = "";
-    let titleEl = e.querySelector(".title");
-    if (titleEl) title = titleEl.text.trim();
-    if (!title && img) title = img.attributes["alt"] || "";
-    if (!title) title = e.attributes["title"] || id;
-
-    let subTitle = "";
-    let txtEl = e.querySelector(".txt");
-    if (txtEl) subTitle = txtEl.text.trim();
-
+    const t = e.querySelector(".title");
+    if (t) title = t.text.trim();
+    if (!title && img && img.attributes) title = this.trim(img.attributes.alt);
+    if (!title) title = this.trim(e.attributes.title);
+    if (!title) title = id;
+    const sub = e.querySelector(".txt");
     return new Comic({
       id: id,
       title: title,
-      subTitle: subTitle,
-      cover: cover,
+      cover: this.imageFromEl(img),
+      subTitle: sub ? sub.text.trim() : "",
     });
   }
 
-  // 解析页面里所有 /mh/ 链接并去重
   parseComicList(html) {
-    let document = new HtmlDocument(html);
-    let seen = {};
-    let comics = [];
-    for (let e of document.querySelectorAll('a[href*="/mh/"]')) {
-      let c = this.parseComic(e);
+    const doc = new HtmlDocument(html);
+    try {
+      const comics = [];
+      const seen = {};
+      for (const a of doc.querySelectorAll('a[href*="/mh/"]')) {
+        const c = this.parseComic(a);
+        if (!c || seen[c.id]) continue;
+        seen[c.id] = true;
+        comics.push(c);
+      }
+      return comics;
+    } finally {
+      doc.dispose();
+    }
+  }
+
+  parsePanelList(panel) {
+    const comics = [];
+    const seen = {};
+    for (const item of panel.querySelectorAll(".comic-item")) {
+      const c = this.parseComic(item.querySelector('a[href*="/mh/"]'));
       if (!c || seen[c.id]) continue;
       seen[c.id] = true;
       comics.push(c);
@@ -252,66 +406,48 @@ class Manga51 extends ComicSource {
     return comics;
   }
 
-  // 从分页标记 <cite>当前页/总页数</cite> 中解析总页数
-  parseMaxPage(html, fallback) {
-    let m = html.match(/<cite>\d+\/(\d+)<\/cite>/);
-    if (m) {
-      let n = parseInt(m[1]);
-      if (!isNaN(n)) return n;
-    }
-    return fallback;
-  }
+  // ---------- 探索页 ----------
 
-  // 发现页
   explore = [
     {
       title: "51漫画-首页",
       type: "multiPartPage",
-      load: async (page) => {
-        let res = await Network.get(`${this.baseUrl}/`, this.headers);
-        if (res.status !== 200) {
-          throw `Invalid status code: ${res.status}`;
-        }
-        let document = new HtmlDocument(res.body);
-        let parts = [];
-
-        // 首页分区标题 → 对应分类页的地区参数
-        let regionMap = {
-          国产漫画: "list/1",
-          日本漫画: "list/2",
-          韩国漫画: "list/3",
-          欧美漫画: "list/4",
-        };
-
-        for (let panel of document.querySelectorAll(".panel")) {
-          let heading = panel.querySelector(".panel-heading h2");
-          if (!heading) continue;
-          let title = heading.text.trim();
-          let comics = [];
-          for (let item of panel.querySelectorAll(".comic-item")) {
-            let a = item.querySelector('a[href*="/mh/"]');
-            if (!a) continue;
-            let c = this.parseComic(a);
-            if (c) comics.push(c);
-          }
-          if (comics.length > 0) {
-            let part = { title: title, comics: comics };
-            let regionParam = regionMap[title];
-            if (regionParam) {
+      load: async () => {
+        const res = await Network.get(Manga51.host + "/", this.headers);
+        if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+        const doc = new HtmlDocument(res.body);
+        const parts = [];
+        try {
+          // 首页 .panel 标题 -> 对应地区分类参数（实测 4 个地区区块 + 1 个友情链接区块）
+          const regionMap = {
+            国产漫画: "list/1",
+            日本漫画: "list/2",
+            韩国漫画: "list/3",
+            欧美漫画: "list/4",
+          };
+          for (const panel of doc.querySelectorAll(".panel")) {
+            const heading = panel.querySelector(".panel-heading h2");
+            if (!heading) continue;
+            const title = heading.text.trim();
+            const comics = this.parsePanelList(panel);
+            if (comics.length === 0) continue;
+            const part = { title: title, comics: comics };
+            const param = regionMap[title];
+            if (param) {
               part.viewMore = {
                 page: "category",
-                attributes: {
-                  category: title,
-                  param: regionParam,
-                },
+                attributes: { category: title, param: param },
               };
             }
             parts.push(part);
           }
+        } finally {
+          doc.dispose();
         }
-
         if (parts.length === 0) {
-          parts.push({ title: "全部", comics: this.parseComicList(res.body) });
+          const comics = this.parseComicList(res.body);
+          if (comics.length === 0) throw "首页未解析到任何推荐区块，站点结构可能已变更";
+          parts.push({ title: "全部", comics: comics });
         }
         return parts;
       },
@@ -320,19 +456,18 @@ class Manga51 extends ComicSource {
       title: "51漫画-最新更新",
       type: "multiPageComicList",
       load: async (page) => {
-        if (page > 1) {
-          return { comics: [], maxPage: 1 };
-        }
-        let res = await Network.get(`${this.baseUrl}/custom/update`, this.headers);
-        if (res.status !== 200) {
-          throw `Invalid status code: ${res.status}`;
-        }
+        const p = page && page > 0 ? page : 1;
+        // 已实测 /custom/update 没有分页控件，且 /custom/update/page/2 与第 1 页内容逐条相同
+        if (p > 1) return { comics: [], maxPage: 1 };
+        const res = await Network.get(Manga51.host + "/custom/update", this.headers);
+        if (res.status !== 200) throw `Invalid status code: ${res.status}`;
         return { comics: this.parseComicList(res.body), maxPage: 1 };
       },
     },
   ];
 
-  // 分类页
+  // ---------- 分类 ----------
+
   category = {
     title: "51漫画",
     parts: [
@@ -340,104 +475,99 @@ class Manga51 extends ComicSource {
         name: "地区",
         type: "fixed",
         itemType: "category",
-        categories: ["全部", "国产漫画", "日本漫画", "韩国漫画", "欧美漫画"],
-        categoryParams: ["", "list/1", "list/2", "list/3", "list/4"],
+        categories: Manga51.regions.map((e) => e[0]),
+        categoryParams: Manga51.regions.map((e) => e[1]),
       },
       {
         name: "题材",
         type: "fixed",
         itemType: "category",
-        categories: [
-          "全部",
-          "科幻",
-          "后宫",
-          "机甲",
-          "都市",
-          "恋爱生活",
-          "恋爱",
-          "恋爱(2)",
-          "其他",
-          "推理悬疑",
-          "魔法",
-          "奇幻",
-        ],
-        categoryParams: [
-          "",
-          "tags/867",
-          "tags/868",
-          "tags/869",
-          "tags/870",
-          "tags/871",
-          "tags/872",
-          "tags/873",
-          "tags/874",
-          "tags/875",
-          "tags/876",
-          "tags/877",
-        ],
+        categories: Manga51.tags.map((e) => e[0]),
+        categoryParams: Manga51.tags.map((e) => e[1]),
       },
       {
         name: "进度",
         type: "fixed",
         itemType: "category",
-        categories: ["全部", "连载中", "已完结"],
-        categoryParams: ["", "finish/1", "finish/2"],
+        categories: Manga51.statuses.map((e) => e[0]),
+        categoryParams: Manga51.statuses.map((e) => e[1]),
       },
     ],
     enableRankingPage: false,
   };
 
-  // 分类漫画加载
   categoryComics = {
+    // 站点支持组合筛选（实测 /category/list/1/tags/867 与 /category/list/1/finish/1 均有效），
+    // 而 Venera 的多个 part 是互斥入口，所以这里再用 optionList 提供“地区之外的另一个维度”。
+    // 选项格式："值-显示名"；"-全部" 的值是空字符串。
+    optionList: [
+      { options: ["-全部"].concat(Manga51.tags.filter((e) => e[1]).map((e) => e[1] + "-" + e[0])) },
+      { options: ["-全部"].concat(Manga51.statuses.filter((e) => e[1]).map((e) => e[1] + "-" + e[0])) },
+    ],
     load: async (category, param, options, page) => {
+      const p = page && page > 0 ? page : 1;
+      const segs = [];
+      const push = (v) => {
+        const s = this.trim(v);
+        if (!s) return;
+        const kind = s.split("/")[0];
+        for (const x of segs) if (x.split("/")[0] === kind) return; // 同一维度只取第一个
+        segs.push(s);
+      };
+      push(param);
+      for (const o of options || []) push(o);
       let path = "/category";
-      if (param) path += "/" + param;
-      if (page && page > 1) path += `/page/${page}`;
-
-      let res = await Network.get(`${this.baseUrl}${path}`, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
-
-      let comics = this.parseComicList(res.body);
-      let maxPage = this.parseMaxPage(res.body, comics.length > 0 ? page : 1);
-      if (maxPage < 1) maxPage = 1;
-
-      return { comics: comics, maxPage: maxPage };
+      for (const s of segs) path += "/" + s;
+      if (p > 1) path += "/page/" + p;
+      const res = await Network.get(Manga51.host + path, this.headers);
+      if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+      const html = res.body || "";
+      const st = this.pageState(html, p, p);
+      if (st.end) return { comics: [], maxPage: st.maxPage };
+      return { comics: this.parseComicList(html), maxPage: st.maxPage };
     },
-    optionList: [],
   };
 
-  // 搜索
+  // ---------- 搜索 ----------
+
   search = {
     load: async (keyword, options, page) => {
-      let kw = encodeURIComponent(keyword);
-      let url;
-      if (!page || page <= 1) {
-        url = `${this.baseUrl}/search?key=${kw}`;
-      } else {
-        url = `${this.baseUrl}/search/${kw}/${page}`;
+      const p = page && page > 0 ? page : 1;
+      const kw = this.trim(keyword);
+      // 站点对空关键词返回一张没有任何结果的空页，这里直接短路，避免无谓请求
+      if (!kw) return { comics: [], maxPage: p };
+      const enc = encodeURIComponent(kw);
+      const url =
+        p <= 1
+          ? `${Manga51.host}/search?key=${enc}`
+          : `${Manga51.host}/search/${enc}/${p}`;
+      let res = null;
+      try {
+        res = await Network.get(url, this.headers);
+      } catch (e) {
+        // 站点对越界搜索页会直接 500，视为没有更多结果
+        return { comics: [], maxPage: p > 1 ? p - 1 : 1 };
       }
-
-      let res = await Network.get(url, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
-
-      let comics = this.parseComicList(res.body);
-      let maxPage = this.parseMaxPage(res.body, comics.length > 0 ? page : 1);
-      if (maxPage < 1) maxPage = 1;
-
-      return { comics: comics, maxPage: maxPage };
+      // 实测 /search/斗罗/2（该关键词只有 1 页）返回 500 Database Error
+      if (res.status >= 500) return { comics: [], maxPage: p > 1 ? p - 1 : 1 };
+      if (res.status === 404 || res.status === 410) return { comics: [], maxPage: p > 1 ? p - 1 : 1 };
+      if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+      const html = res.body || "";
+      const st = this.pageState(html, p, 1);
+      if (st.end) return { comics: [], maxPage: st.maxPage };
+      const comics = this.parseComicList(html);
+      if (comics.length === 0) return { comics: [], maxPage: p > 1 ? p - 1 : 1 };
+      return { comics: comics, maxPage: st.maxPage };
     },
     optionList: [],
     enableTagsSuggestions: false,
   };
 
-  // 单本漫画
+  // ---------- 单本漫画 ----------
+
   comic = {
-    // 校验 ID 格式（字母数字）
-    idMatch: "^[A-Za-z0-9]+$",
+    // 校验 ID 格式（字母数字，4-32 位）
+    idMatch: "^[A-Za-z0-9]{4,32}$",
 
     // 生成分享链接
     getShareLink: (id) => {
@@ -445,76 +575,88 @@ class Manga51 extends ComicSource {
     },
 
     loadInfo: async (id) => {
-      let res = await Network.get(`${this.baseUrl}/mh/${id}`, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
-      let html = res.body;
-      let document = new HtmlDocument(html);
-
-      let titleEl =
-        document.querySelector(".comic_name h1.name") ||
-        document.querySelector("h1");
-      let title = titleEl ? titleEl.text.trim() : id;
-
-      // 简介：优先 .metas-desc 下的直接 <p>，其次 meta description
+      const cid = this.normalizeComicId(id);
+      if (!cid) throw "无法解析漫画 ID，请从探索、搜索或分类页重新打开这部作品";
+      const res = await Network.get(`${Manga51.host}/mh/${cid}`, this.headers);
+      if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+      const html = res.body || "";
+      const doc = new HtmlDocument(html);
+      let title = "";
       let description = "";
-      let descEl = document.querySelector(".metas-desc > p");
-      if (descEl) description = descEl.text.trim();
-      if (!description) {
-        let m = html.match(/<meta name="description" content="([^"]*)"/);
-        if (m) description = m[1];
-      }
-
-      // 来源/作者：.comic_hot（如“飞卢小说网”）
-      let hotEl = document.querySelector(".comic_hot");
-      let source = hotEl ? hotEl.text.trim() : "";
-
-      // 标签（部分漫画详情页可能没有标签）
-      let tags = [];
-      for (let a of document.querySelectorAll('a[href*="/category/tags/"]')) {
-        let t = a.text ? a.text.trim() : "";
-        if (t) tags.push(t);
-      }
-
-      // 封面：<div class="comic_cover" style="background-image: url('...')">
-      let cover = "";
-      let coverMatch = html.match(
-        /class="comic_cover"[^>]*style="[^"]*background-image:\s*url\(['"]?([^'")]+)['"]?\)/
-      );
-      if (coverMatch) cover = coverMatch[1];
-
-      // 章节：.chapter-list 下的 /show/ 链接
-      let chapters = new Map();
-      let chapterLinks = document.querySelectorAll(
-        '.chapter-list a[href*="/show/"]'
-      );
-      if (chapterLinks.length === 0) {
-        chapterLinks = document.querySelectorAll('a[href*="/show/"]');
-      }
-      for (let a of chapterLinks) {
-        let href = a.attributes["href"] || "";
-        let m = href.match(/\/show\/([A-Za-z0-9]+)\.html/);
-        if (!m) continue;
-        let chTitle = a.text ? a.text.trim() : "";
-        if (!chTitle) continue;
-        chapters.set(m[1], chTitle);
-      }
-
-      // 更新时间
+      let author = "";
       let updateTime = "";
-      let timeEl = document.querySelector(".zuixin time");
-      if (timeEl) updateTime = timeEl.text.trim();
+      const tagList = [];
+      const chapters = new Map();
+      try {
+        const h1 =
+          doc.querySelector(".comic_name h1.name") ||
+          doc.querySelector("h1.name") ||
+          doc.querySelector("h1");
+        if (h1) title = h1.text.trim();
+        if (!title) {
+          const h2 = doc.querySelector(".title h2");
+          if (h2) title = h2.text.trim();
+        }
+        // .metas-desc 下第一个直接子 p 才是简介，内部 .download-app 里的 p 是 App 推广文案
+        const desc = doc.querySelector(".metas-desc > p");
+        if (desc) description = desc.text.trim();
+        if (!description) {
+          const m = html.match(/<meta name="description" content="([^"]*)"/);
+          if (m) description = m[1];
+        }
+        // 来源/作者：.comic_hot（如“飞卢小说网”）
+        const hot = doc.querySelector(".comic_hot");
+        if (hot) author = hot.text.trim();
+        const time = doc.querySelector(".zuixin time");
+        if (time) updateTime = time.text.trim();
+        for (const a of doc.querySelectorAll('a[href*="/category/tags/"]')) {
+          const t = this.trim(a.text);
+          if (t && tagList.indexOf(t) < 0) tagList.push(t);
+        }
+        // 章节列表：优先 .chapter-list；个别页面结构不同时退回全页 /show/ 链接
+        let links = doc.querySelectorAll('.chapter-list a[href*="/show/"]');
+        if (links.length === 0) links = doc.querySelectorAll('a[href*="/show/"]');
+        for (const a of links) {
+          const ep = this.normalizeEpId(a.attributes && a.attributes.href);
+          if (!ep) continue;
+          const t = a.text ? this.trim(a.text) : "";
+          chapters.set(ep, t || ep);
+        }
+      } finally {
+        doc.dispose();
+      }
+      if (!title) throw "详情页解析失败，站点结构可能已变更";
 
-      // 构造详情页链接（供复制分享）
-      const shareUrl = `https://m.51manga.com/mh/${id}`;
+      // 封面：.comic_cover 的 background-image（实测 328x422，可正常进入历史封面网格）
+      let cover = "";
+      const cov =
+        /class="comic_cover"[^>]*style="[^"]*background-image:\s*url\(['"]?([^'")]+)['"]?\)/.exec(
+          html
+        );
+      if (cov) cover = this.absolutize(cov[1], Manga51.host);
+      if (!cover) {
+        // 兜底：详情头部区块内第一张图
+        const at = html.indexOf('class="comic-info"');
+        if (at >= 0) {
+          const seg = html.slice(at, at + 2500);
+          const im = /<img[^>]*(?:lay-src|data-src|src)="([^"]+)"/.exec(seg);
+          if (im && !this.isPlaceholderImage(im[1])) cover = this.absolutize(im[1], Manga51.host);
+        }
+      }
+
+      const tags = {};
+      if (tagList.length > 0) tags["标签"] = tagList;
+      if (author) tags["作者"] = [author];
+
+      const shareUrl = `https://m.51manga.com/mh/${cid}`;
 
       return new ComicDetails({
         title: title,
-        subtitle: source,
+        subtitle: author,
+        subTitle: author,
         cover: cover,
         description: description,
-        tags: tags.length > 0 ? { 标签: tags } : {},
+        tags: tags,
         chapters: chapters,
         updateTime: updateTime,
         url: shareUrl, // 关键：应用通过此字段显示复制链接按钮
@@ -522,65 +664,48 @@ class Manga51 extends ComicSource {
     },
 
     loadEp: async (comicId, epId) => {
-      let url = `${this.baseUrl}/show/${epId}.html`;
-      lastChapterPageUrl = url;
-      let res = await Network.get(url, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
-      let html = res.body;
-      let m = html.match(/params\s*=\s*'([^']+)'/);
-      if (!m) {
-        throw "未找到加密参数(params)，页面结构可能已变化";
-      }
-      let data;
+      const ep = this.normalizeEpId(epId);
+      if (!ep) return { images: [] };
+      const res = await Network.get(`${Manga51.host}/show/${ep}.html`, this.headers);
+      if (res.status === 404 || res.status === 410) return { images: [] };
+      if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+      const html = res.body || "";
+      const m = /params\s*=\s*(['"])([\s\S]*?)\1/.exec(html);
+      if (!m) return { images: [] };
+      let data = null;
       try {
-        data = decryptParams(m[1]);
+        data = this.decryptParams(m[2]);
       } catch (e) {
-        throw `解密章节数据失败: ${e.message || e}`;
+        return { images: [] };
       }
-      let images = (data.images || []).map((src) => {
-        if (/^https?:\/\//.test(src)) return src;
-        if (String(data.source_id) === "12") {
-          return "https://img1.baipiaoguai.org" + src;
-        }
-        return src;
-      });
-      if (images.length === 0) {
-        throw "章节图片列表为空";
+      const raw = data && Array.isArray(data.images) ? data.images : [];
+      const images = [];
+      const seen = {};
+      for (const x of raw) {
+        if (typeof x !== "string" || !x) continue;
+        const u = this.imageUrl(x);
+        if (!u || seen[u]) continue;
+        seen[u] = true;
+        images.push(u);
       }
       return { images: images };
     },
 
+    // 图片 CDN 强制校验 Referer（实测无 Referer -> 403）。固定用站点域名做 Referer，
+    // 不再依赖“最近一次章节页 URL”这种模块级可变状态，避免并发/历史进入时串值。
     onImageLoad: (url) => {
-      return {
-        url: url,
-        headers: {
-          Referer: lastChapterPageUrl || "https://www.51manga.com/",
-          "User-Agent": this.headers["User-Agent"],
-          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9",
-        },
-      };
+      return { url: url, headers: this.imageHeaders };
     },
 
     onThumbnailLoad: (url) => {
-      return {
-        url: url,
-        headers: {
-          Referer: "https://www.51manga.com/",
-          "User-Agent": this.headers["User-Agent"],
-          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9",
-        },
-      };
+      return { url: url, headers: this.imageHeaders };
     },
 
     // 从外部链接识别漫画 id，支持 m.51manga.com 和 www.51manga.com
     link: {
       domains: ["51manga.com", "m.51manga.com"],
       linkToId: (url) => {
-        let m = url.match(/\/mh\/([A-Za-z0-9]+)/);
+        const m = /\/mh\/([A-Za-z0-9]+)/.exec(String(url == null ? "" : url));
         return m ? m[1] : null;
       },
     },

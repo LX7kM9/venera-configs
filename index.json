@@ -115,7 +115,7 @@
         "name": "51漫画",
         "fileName": "51manga.js",
         "key": "manga51",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
