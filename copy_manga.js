@@ -2,7 +2,7 @@ class CopyManga extends ComicSource {
 
     name = "拷贝漫画"
     key = "copy_manga"
-    version = "2.3.0"   // 整合风控增强与指纹管理
+    version = "2.3.1"   // 整合风控增强与指纹管理
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/copy_manga.js"
 
@@ -350,6 +350,7 @@ class CopyManga extends ComicSource {
             title: "拷贝漫画",
             type: "singlePageWithMultiPart",
             load: async () => {
+                //====修改====首页软风控(200+results:null): 重置指纹+等待后重试1次
                 let data = null;
                 for (let attempt = 0; attempt < 2; attempt++) {
                     await this.throttle();
@@ -374,6 +375,7 @@ class CopyManga extends ComicSource {
                 if (!data || !data.results) {
                     throw "首页返回空数据(软风控)，请稍后重试或点击设置里的“重置设备指纹池”";
                 }
+                //====结束修改====
                 function parseComic(comic) {
                     if (comic["comic"] !== null && comic["comic"] !== undefined) comic = comic["comic"]
                     let tags = []
@@ -510,7 +512,7 @@ class CopyManga extends ComicSource {
         optionList: [{ type: "select", options: ["-全部", "name-名称", "author-作者", "local-汉化组"], label: "搜索选项" }]
     }
 
-    // ========== 收藏（完整多账号，保持不变） ==========
+    // ========== 收藏（完整多账号） ==========
     favorites = {
         multiFolder: true,
         singleFolderForSingleComic: true,
@@ -773,9 +775,9 @@ class CopyManga extends ComicSource {
                 return favAccounts.length > 0;
             }
 
+            //====修改====详情请求加重试: 硬风控210/软风控results:null都重置指纹+退避重试
             let results = null;
             let data = null;
-            // 重试循环：处理210硬风控与软风控（results空）
             for (let attempt = 0; attempt < 3; attempt++) {
                 let reqId = await this.getReqID();
                 await this.throttle();
@@ -811,6 +813,7 @@ class CopyManga extends ComicSource {
             }
 
             let comicData = data.comic;
+            //====结束修改====
             let title = comicData.name;
             let cover = comicData.cover;
             let authors = comicData.author.map(e => e.name);
@@ -833,11 +836,12 @@ class CopyManga extends ComicSource {
         },
 
         loadEp: async (comicId, epId) => {
-            // 读取每章重置指纹开关
+            //====修改====读取配置：是否每一章强制重置指纹
             const autoResetEveryChapter = this.loadSetting('auto_reset_finger_every_ep') === "1";
             if (autoResetEveryChapter) {
                 this.autoResetDeviceFingerprint();
             }
+            //====结束修改====
 
             let attempt = 0, maxAttempts = 6, res, data;
             while (attempt < maxAttempts) {
@@ -846,10 +850,11 @@ class CopyManga extends ComicSource {
                     await this.throttle();
                     res = await Network.get(`${this.apiUrl}/api/v3/comic/${comicId}/chapter2/${epId}?in_mainland=true&request_id=${reqId}`, { ...this.headers });
                     if (res.status === 210) {
-                        // 硬风控：记录 + 重置 + 阶梯退避
+                        //====修改====捕获210风控，自动重置指纹再重试
                         this.markDeviceBlocked();
                         console.log(`检测到210风控，执行自动重置设备指纹`);
                         this.autoResetDeviceFingerprint();
+                        //====结束修改====
                         let waitTime = 10000 + attempt * 5000;
                         try {
                             let responseBody = JSON.parse(res.body);
@@ -872,6 +877,7 @@ class CopyManga extends ComicSource {
                     data = JSON.parse(res.body);
                     // 软风控检测：章节内容为空
                     if (!data.results || !data.results.chapter || !Array.isArray(data.results.chapter.contents)) {
+                        //====修改====软风控(200+空章节数据): 重置指纹+退避重试, 与210同样处理
                         console.log(`检测到软风控(章节空数据)，执行自动重置设备指纹`);
                         this.autoResetDeviceFingerprint();
                         let waitTime = 10000 + attempt * 5000;
@@ -882,6 +888,7 @@ class CopyManga extends ComicSource {
                             throw "210：章节内容加载频繁，已被官方风控限制。请尝试切换【海外线路】或点击设置里的“重置设备指纹池”。";
                         }
                         continue;
+                        //====结束修改====
                     }
                     // 成功获取数据
                     let imagesUrls = data.results.chapter.contents.map((e) => e.url);
@@ -963,17 +970,10 @@ class CopyManga extends ComicSource {
         // ========== 链接解析 ==========
         link: {
             domains: [
-                'www.2025copy.com',
-                'www.2026copy.com',
-                'www.2027copy.com',
-                'www.copy20.com',
-                'www.mangacopy.com',
-                'www.copy-manga.com',
-                'www.copymanga.tv',
-                'www.copy2000.online',
-                'www.copy2000.site',
-                'www.copy3000.com',
-                'www.copy4000.com',
+                'www.2025copy.com', 'www.2026copy.com', 'www.2027copy.com',
+                'www.copy20.com', 'www.mangacopy.com', 'www.copy-manga.com',
+                'www.copymanga.tv', 'www.copy2000.online', 'www.copy2000.site',
+                'www.copy3000.com', 'www.copy4000.com',
             ],
             linkToId: (url) => {
                 let match = url.match(/\/h5\/details\/comic\/([^/?]+)/);
@@ -987,7 +987,7 @@ class CopyManga extends ComicSource {
         idMatch: "^[A-Za-z0-9_-]+$",
     }
 
-    // ========== 设置项（新增两个开关，置于 callback 之前） ==========
+    // ========== 设置项（callback 放在最后） ==========
     settings = {
         help: {
             title: "使用帮助",
@@ -1021,7 +1021,7 @@ class CopyManga extends ComicSource {
             default: '-datetime_updated',
         },
 
-        // ===== 新增设置项：每章节重置指纹 + 虚拟IP开关 =====
+        //====修改====新增设置项：每章节自动重置指纹开关，放在callback项之前！
         auto_reset_finger_every_ep: {
             title: "每切换章节强制重置设备指纹 (谨慎开启)",
             type: "select",
@@ -1040,6 +1040,7 @@ class CopyManga extends ComicSource {
             ],
             default: "0"
         },
+        //====结束修改====
 
         region: {
             title: "CDN线路",
@@ -1115,26 +1116,11 @@ class CopyManga extends ComicSource {
                 }
                 try {
                     const hosts = [
-                        'www.2025copy.com',
-                        'api.2025copy.com',
-                        'www.2026copy.com',
-                        'api.2026copy.com',
-                        'www.2027copy.com',
-                        'api.2027copy.com',
-                        'www.copy20.com',
-                        'mapi.copy20.com',
-                        'www.mangacopy.com',
-                        'www.copy-manga.com',
-                        'api.copy-manga.com',
-                        'www.copymanga.tv',
-                        'www.copy2000.online',
-                        'api.copy2000.online',
-                        'www.copy2000.site',
-                        'api.copy2000.site',
-                        'www.copy3000.com',
-                        'api.copy3000.com',
-                        'www.copy4000.com',
-                        'api.copy4000.com'
+                        'www.2025copy.com', 'api.2025copy.com', 'www.2026copy.com', 'api.2026copy.com',
+                        'www.2027copy.com', 'api.2027copy.com', 'www.copy20.com', 'mapi.copy20.com',
+                        'www.mangacopy.com', 'www.copy-manga.com', 'api.copy-manga.com', 'www.copymanga.tv',
+                        'www.copy2000.online', 'api.copy2000.online', 'www.copy2000.site', 'api.copy2000.site',
+                        'www.copy3000.com', 'api.copy3000.com', 'www.copy4000.com', 'api.copy4000.com'
                     ];
                     const timeoutPromise = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                     const testHost = async (host) => {
@@ -1160,11 +1146,7 @@ class CopyManga extends ComicSource {
                     for (const result of resultsArray) {
                         if (result.status === 'fulfilled' && result.value) {
                             const r = result.value;
-                            results[r.host] = {
-                                success: r.success,
-                                latency: r.latency,
-                                status: r.status
-                            };
+                            results[r.host] = { success: r.success, latency: r.latency, status: r.status };
                         }
                     }
                     let msg = "节点速度测试结果：\n";
@@ -1337,22 +1319,34 @@ class CopyManga extends ComicSource {
     }
 
     async refreshSearchApi() {
-        let url = "https://www.copy20.com/search"
-        let res = await fetch(url)
-        let searchApi = ""
-        if (res.status === 200) {
-            let text = await res.text()
-            let match = text.match(/const countApi = "([^"]+)"/)
-            if (match && match[1]) CopyManga.searchApi = match[1]
+        try {
+            let url = "https://www.copy20.com/search"
+            let res = await fetch(url)
+            let searchApi = ""
+            if (res.status === 200) {
+                let text = await res.text()
+                let match = text.match(/const countApi = "([^"]+)"/)
+                if (match && match[1]) {
+                    CopyManga.searchApi = match[1]
+                }
+            }
+        } catch (e) {
+            // 网络抖动时静默跳过, 保持默认 searchApi, 避免 init 产生未处理异常
         }
     }
 
     async refreshAppApi() {
-        const url = "https://api.copy-manga.com/api/v3/system/network2?platform=3"
-        const res = await fetch(url, { headers: this.headers });
-        if (res.status === 200) {
-            let data = await res.json();
-            this.settings.base_url = data.results.api[0][0];
+        try {
+            const url = "https://api.copy-manga.com/api/v3/system/network2?platform=3"
+            const res = await fetch(url, { headers: this.headers });
+            if (res.status === 200) {
+                let data = await res.json();
+                if (data && data.results && Array.isArray(data.results.api) && data.results.api.length > 0) {
+                    this.settings.base_url = data.results.api[0][0];
+                }
+            }
+        } catch (e) {
+            // 网络失败时保留当前 base_url, 不打断 init
         }
     }
 }

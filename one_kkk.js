@@ -2,179 +2,424 @@
 class OneKkk extends ComicSource {
     name = "极速漫画"
     key = "one_kkk"
-    version = "1.0.1"      // 修复链接解析跳转
+    version = "2.0.0"   // 移植 dm5 新功能（封面识别/工具方法/通用解包）
     minAppVersion = "1.6.0"
-    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/one_kkk.js"  // 可自行修改
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/one_kkk.js"
 
     init() { }
 
+    // ==================================================
+    // 主域名设置
+    // ==================================================
+    settings = {
+        domain: {
+            title: "主域名",
+            type: "input",
+            default: "m.1kkk.com"
+        }
+    };
+
     get baseUrl() {
-        return "https://m.1kkk.com";
+        let domain = this.loadSetting("domain");
+        if (!domain) domain = "m.1kkk.com";
+        domain = String(domain)
+            .trim()
+            .replace(/^https?:\/\//i, "")
+            .replace(/\/+$/, "");
+        return "https://" + domain;
     }
 
-    // 通用请求头
-    _buildHeaders() {
+    // ==================================================
+    // 统一请求头（动态 host）
+    // ==================================================
+    get headers() {
+        let host = this.baseUrl.replace(/^https?:\/\//i, "");
         return {
-            'user-agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36',
-            'accept': '*/*',
-            'accept-encoding': 'gzip, deflate, br, zstd',
-            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'cache-control': 'no-cache',
-            'pragma': 'no-cache',
-            'sec-ch-ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'host': 'm.1kkk.com'
+            "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": this.baseUrl + "/",
+            "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"'
         };
     }
 
     _buildImageHeaders(imageUrl, referer) {
-        let host = '';
+        let host = "";
         try {
             let u = new URL(imageUrl);
             host = u.host;
         } catch (e) {
             let m = imageUrl.match(/^https?:\/\/([^\/]+)/i);
-            host = m ? m[1] : '';
+            host = m ? m[1] : "";
         }
 
         return {
-            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Pragma': 'no-cache',
-            'Referer': referer || (this.baseUrl + '/'),
-            'Sec-Fetch-Dest': 'image',
-            'Sec-Fetch-Mode': 'no-cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'Sec-Fetch-Storage-Access': 'active',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36',
-            'sec-ch-ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"'
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Pragma": "no-cache",
+            "Referer": referer || (this.baseUrl + "/"),
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
+            "Sec-Fetch-Storage-Access": "active",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
+            "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"'
         };
     }
 
-    // ==================== 探索页 (改为 singlePageWithMultiPart) ====================
+    // ==================================================
+    // URL/文本清理工具
+    // ==================================================
+    cleanUrl(url) {
+        if (!url) return "";
+        return String(url)
+            .replace(/&amp;/g, "&")
+            .replace(/\\u0026/g, "&")
+            .replace(/\\\//g, "/")
+            .replace(/\\'/g, "'")
+            .replace(/\\"/g, '"')
+            .replace(/\\+$/g, "")
+            .trim();
+    }
+
+    cleanText(text) {
+        if (!text) return "";
+        return String(text).replace(/\s+/g, " ").trim();
+    }
+
+    toAbsoluteUrl(url) {
+        if (!url) return "";
+        url = this.cleanUrl(url);
+        if (!url) return "";
+        if (/^https?:\/\//i.test(url)) return url;
+        if (url.startsWith("//")) return "https:" + url;
+        if (url.startsWith("/")) return this.baseUrl + url;
+        return this.baseUrl + "/" + url;
+    }
+
+    getImageUrl(element) {
+        if (!element) return "";
+        let attrs = element.attributes || {};
+        let url =
+            attrs["data-src"] ||
+            attrs["data-original"] ||
+            attrs["data-lazy-src"] ||
+            attrs["data-url"] ||
+            attrs["data-image"] ||
+            attrs["src"] ||
+            "";
+        return this.toAbsoluteUrl(url);
+    }
+
+    // ==================================================
+    // 封面识别
+    // ==================================================
+    isRealCover(url, className) {
+        const s = String(url || "");
+        if (!/^https?:\/\//i.test(s)) return false;
+        if (s.indexOf("_320x246") >= 0 || s.indexOf("_880x385") >= 0) return false;
+        if (/\/dm5\/images?\//i.test(s) || /\/images\/mobile\//i.test(s)) return false;
+        if (/\.(?:gif|svg)(?:\?|$)/i.test(s)) return false;
+
+        const cls = String(className || "");
+        if (cls.indexOf("manga-list-1-cover-img") >= 0) return false;
+        if (cls.indexOf("rank-list-cover-img") >= 0) return false;
+        return true;
+    }
+
+    isUsableImage(url) {
+        const s = String(url || "");
+        if (!/^https?:\/\//i.test(s)) return false;
+        if (/\/dm5\/images?\//i.test(s) || /\/images\/mobile\//i.test(s)) return false;
+        if (/\.(?:gif|svg)(?:\?|$)/i.test(s)) return false;
+        return true;
+    }
+
+    pickCover(anchor) {
+        if (!anchor) return "";
+        const preferred = [
+            "manga-list-2-cover-img",
+            "book-list-cover-img",
+            "detail-main-cover-img",
+            "detail-main-bg"
+        ];
+        for (const cls of preferred) {
+            const img = anchor.querySelector("img." + cls);
+            if (!img) continue;
+            const url = this.getImageUrl(img);
+            if (this.isRealCover(url, cls)) return url;
+        }
+        for (const img of anchor.querySelectorAll("img")) {
+            const url = this.getImageUrl(img);
+            if (this.isRealCover(url, img.attributes["class"])) return url;
+        }
+        for (const img of anchor.querySelectorAll("img")) {
+            const url = this.getImageUrl(img);
+            if (this.isUsableImage(url)) return url;
+        }
+        return "";
+    }
+
+    // ==================================================
+    // 漫画 ID 工具（适配 1kkk 的 manhua\d+ / manhua-\d+ / m\d+ 三种格式）
+    // ==================================================
+    getComicId(href) {
+        if (!href) return null;
+        href = String(href).split("?")[0].split("#")[0].replace(/\/+$/, "");
+        let match = href.match(/\/(manhua-?\d+)$/i);
+        if (match) return match[1];
+        match = href.match(/\/(m\d+)$/i);
+        if (match) return match[1];
+        return null;
+    }
+
+    isComicUrl(href) {
+        if (!href) return false;
+        href = String(href).split("?")[0].split("#")[0];
+        return /\/manhua-?\d+\/?$/i.test(href) || /\/m\d+\/?$/i.test(href);
+    }
+
+    getComicUrl(id) {
+        if (!id) return "";
+        id = String(id).trim();
+        if (!id) return "";
+        if (/^https?:\/\//i.test(id)) return id;
+        if (/^manhua-?\d+$/i.test(id)) return this.baseUrl + "/" + id + "/";
+        if (/^m\d+$/i.test(id)) return this.baseUrl + "/" + id + "/";
+        return this.baseUrl + "/" + id + "/";
+    }
+
+    // ==================================================
+    // 通用 P.A.C.K.E.R. 解包
+    // ==================================================
+    unpackDM5(html) {
+        if (!html) return "";
+        let result = html;
+        const maxLoop = 10;
+
+        for (let loop = 0; loop < maxLoop; loop++) {
+            const match = result.match(
+                /eval\s*\(\s*function\s*\(p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)\s*\{([\s\S]*?)\}\s*\(\s*(['"])([\s\S]*?)\2\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])([\s\S]*?)\6\.split\(['"]\|['"]\)\s*,\s*0\s*,\s*\{\}\s*\)\s*\)/
+            );
+            if (!match) break;
+
+            const packed = match[3];
+            const radix = parseInt(match[4], 10);
+            const count = parseInt(match[5], 10);
+            const dictionaryString = match[7];
+
+            if (!packed || !radix || !count || dictionaryString === undefined) break;
+
+            const dictionary = dictionaryString.split("|");
+
+            function encode(num) {
+                let result = "";
+                do {
+                    const remainder = num % radix;
+                    num = Math.floor(num / radix);
+                    if (remainder > 35) {
+                        result += String.fromCharCode(remainder + 29);
+                    } else {
+                        result += remainder.toString(36);
+                    }
+                } while (num > 0);
+                return result.split("").reverse().join("");
+            }
+
+            let unpacked = packed;
+            for (let i = count - 1; i >= 0; i--) {
+                const key = encode(i);
+                const value = dictionary[i] || key;
+                const keyRegex = new RegExp("\\b" + key + "\\b", "g");
+                unpacked = unpacked.replace(keyRegex, value);
+            }
+            if (unpacked === packed) break;
+            result = result.replace(match[0], unpacked);
+        }
+
+        return result;
+    }
+
+    extractNewImgs(html) {
+        let images = [];
+        if (!html) return images;
+        const newImgsMatch = html.match(
+            /(?:var\s+)?newImgs\s*=\s*(?:new\s+Array\s*\()?\s*\[([\s\S]*?)\]/i
+        );
+        if (!newImgsMatch) return images;
+        const body = newImgsMatch[1];
+        const urlRegex = /(['"])(.*?)\1/g;
+        let match;
+        while ((match = urlRegex.exec(body)) !== null) {
+            let url = this.cleanUrl(match[2]);
+            if (/^https?:\/\//i.test(url) && /\.(jpg|jpeg|png|webp)(\?|$)/i.test(url)) {
+                if (!images.includes(url)) images.push(url);
+            }
+        }
+        return images;
+    }
+
+    extractImages(html) {
+        if (!html) return [];
+        let images = [];
+
+        images = this.extractNewImgs(html);
+        if (images.length > 0) return [...new Set(images)];
+
+        const fullRegex = /https?:\/\/[^"'\\\s<>]+?\.(?:jpg|jpeg|png|webp)\?[^"'\\\s<>]+/gi;
+        let match;
+        while ((match = fullRegex.exec(html)) !== null) {
+            let url = this.cleanUrl(match[0]);
+            if (!images.includes(url)) images.push(url);
+        }
+        if (images.length > 0) return [...new Set(images)];
+
+        const cidRegex = /https?:\/\/[^"'\\\s<>]+?\.jpg\?cid=\d+&key=[^"'\\\s<>]+?&type=\d+/gi;
+        while ((match = cidRegex.exec(html)) !== null) {
+            let url = this.cleanUrl(match[0]);
+            if (!images.includes(url)) images.push(url);
+        }
+        if (images.length > 0) return [...new Set(images)];
+
+        const attrRegex = /(?:data-src|data-original|data-lazy-src|data-url|data-image|src)\s*=\s*["']([^"']+)["']/gi;
+        while ((match = attrRegex.exec(html)) !== null) {
+            let url = this.cleanUrl(match[1]);
+            if (/^https?:\/\//i.test(url) && /\.(jpg|jpeg|png|webp)(\?|$)/i.test(url)) {
+                if (!images.includes(url)) images.push(url);
+            }
+        }
+        images = images.filter(url => !url.includes("page_default_img"));
+        return [...new Set(images)];
+    }
+
+    // ==================================================
+    // 探索页
+    // ==================================================
     explore = [
         {
             title: "极速漫画",
             type: "singlePageWithMultiPart",
             load: async () => {
-                let url = this.baseUrl + '/';
-                let res = await Network.get(url, this._buildHeaders());
-                if (res.status !== 200) throw `Invalid status code: ${res.status}`;
+                const res = await Network.get(this.baseUrl + "/", this.headers);
+                if (res.status !== 200) throw "Invalid status code: " + res.status;
 
-                let html = res.body || '';
-                let doc = new HtmlDocument(html);
-                let parts = [];
+                const document = new HtmlDocument(res.body);
+                const result = {};
+                const seen = new Set();
 
-                // Banner
-                let banner = doc.querySelector('.index-banner');
+                // ========== 1) 首页 banner ==========
+                const banner = document.querySelector(".index-banner");
                 if (banner) {
-                    let comics = [];
-                    let items = banner.querySelectorAll('li');
+                    const comics = [];
+                    const items = banner.querySelectorAll("li");
                     for (let i = 0; i < items.length; i++) {
-                        let item = items[i];
-                        let a = item.querySelector('a');
+                        const item = items[i];
+                        const a = item.querySelector("a");
                         if (!a) continue;
-                        let img = item.querySelector('img');
-                        let href = a.attributes['href'];
-                        let title = a.attributes['title'];
-                        let cover = img ? (img.attributes['src'] || img.attributes['data-src']) : '';
-                        if (href) {
-                            if (!href.startsWith('http')) href = this.baseUrl + href;
-                            if (cover && !cover.startsWith('http')) {
-                                if (cover.startsWith('//')) cover = 'https:' + cover;
-                                else cover = this.baseUrl + cover;
-                            }
-                            comics.push(new Comic({
-                                id: href,
-                                title: title || '',
-                                cover: cover || '',
-                                description: ''
-                            }));
-                        }
+
+                        const href = a.attributes["href"] || "";
+                        if (!this.isComicUrl(href)) continue;
+
+                        const id = this.getComicId(href);
+                        if (!id || seen.has(id)) continue;
+
+                        const img = item.querySelector("img");
+                        let title = this.cleanText(a.attributes["title"]);
+                        if (!title && img) title = this.cleanText(img.attributes["alt"] || "");
+                        if (!title) title = this.cleanText(a.text);
+                        if (!title) continue;
+
+                        const cover = this.pickCover(item) || this.pickCover(a);
+
+                        seen.add(id);
+                        comics.push({
+                            id: String(id),
+                            title: String(title),
+                            cover: String(cover || ""),
+                            description: ""
+                        });
                     }
-                    if (comics.length > 0) parts.push({ title: '热门推荐', comics: comics });
+                    if (comics.length > 0) result["热门推荐"] = comics;
                 }
 
-                // 列表
-                let lists = doc.querySelectorAll('.manga-list');
+                // ========== 2) 分类列表 ==========
+                const lists = document.querySelectorAll(".manga-list");
                 for (let i = 0; i < lists.length; i++) {
-                    let list = lists[i];
-                    let titleNode = list.querySelector('.manga-list-title');
-                    let title = titleNode ? titleNode.text.trim() : '';
-                    let viewMore = null;
-                    if (titleNode) {
-                        let moreNode = titleNode.querySelector('a');
-                        if (moreNode) {
-                            let href = moreNode.attributes['href'];
-                            if (href) {
-                                if (!href.startsWith('http')) href = this.baseUrl + href;
-                                viewMore = href;
-                            }
-                        }
-                    }
-                    let comics = [];
-                    let items = list.querySelectorAll('li');
-                    for (let j = 0; j < items.length; j++) {
-                        let item = items[j];
-                        let a = item.querySelector('a');
-                        if (!a) continue;
-                        let href = a.attributes['href'];
-                        let comicTitle = a.attributes['title'];
-                        if (!comicTitle) {
-                            let t = item.querySelector('.manga-list-2-title');
-                            if (t) comicTitle = t.text.trim();
-                        }
-                        let img = item.querySelector('img');
-                        let cover = img ? (img.attributes['data-src'] || img.attributes['src']) : '';
-                        let tip = item.querySelector('.manga-list-1-tip') || item.querySelector('.manga-list-2-tip');
-                        let desc = tip ? tip.text.trim() : '';
-                        let badgeNode = item.querySelector('.manga-list-1-cover-logo-font');
-                        let badge = badgeNode ? badgeNode.text.trim() : '';
+                    const list = lists[i];
+                    const titleNode = list.querySelector(".manga-list-title");
+                    let title = titleNode ? this.cleanText(titleNode.text) : "";
 
-                        if (href) {
-                            if (!href.startsWith('http')) href = this.baseUrl + href;
-                            if (cover && !cover.startsWith('http')) {
-                                if (cover.startsWith('//')) cover = 'https:' + cover;
-                                else cover = this.baseUrl + cover;
-                            }
-                            comics.push(new Comic({
-                                id: href,
-                                title: comicTitle || '',
-                                cover: cover || '',
-                                description: desc,
-                                tags: badge ? [badge] : []
-                            }));
+                    const comics = [];
+                    const items = list.querySelectorAll("li");
+                    for (let j = 0; j < items.length; j++) {
+                        const item = items[j];
+                        const a = item.querySelector("a");
+                        if (!a) continue;
+
+                        const href = a.attributes["href"] || "";
+                        if (!this.isComicUrl(href)) continue;
+
+                        const id = this.getComicId(href);
+                        if (!id || seen.has(id)) continue;
+
+                        const img = item.querySelector("img");
+                        let comicTitle = this.cleanText(a.attributes["title"]);
+                        if (!comicTitle) {
+                            const t = item.querySelector(".manga-list-2-title");
+                            if (t) comicTitle = this.cleanText(t.text);
                         }
+                        if (!comicTitle && img) comicTitle = this.cleanText(img.attributes["alt"] || "");
+                        if (!comicTitle) comicTitle = this.cleanText(a.text);
+                        if (!comicTitle) continue;
+
+                        const tip = item.querySelector(".manga-list-1-tip") || item.querySelector(".manga-list-2-tip");
+                        const desc = tip ? this.cleanText(tip.text) : "";
+                        const badgeNode = item.querySelector(".manga-list-1-cover-logo-font");
+                        const badge = badgeNode ? this.cleanText(badgeNode.text) : "";
+
+                        const cover = this.pickCover(a);
+
+                        seen.add(id);
+                        comics.push({
+                            id: String(id),
+                            title: String(comicTitle),
+                            cover: String(cover || ""),
+                            description: String(desc || ""),
+                            tags: badge ? [badge] : []
+                        });
                     }
+
                     if (comics.length > 0) {
                         if (!title) {
                             if (comics[0].tags && comics[0].tags.length > 0) title = comics[0].tags[0];
-                            else title = '漫画列表';
+                            else title = "漫画列表";
                         }
-                        let part = { title: title, comics: comics };
-                        if (viewMore) part.viewMore = viewMore;
-                        parts.push(part);
+                        if (result[title]) {
+                            result[title] = result[title].concat(comics);
+                        } else {
+                            result[title] = comics;
+                        }
                     }
                 }
 
-                // 转换为对象
-                let result = {};
-                for (let part of parts) {
-                    result[part.title] = part.comics;
-                }
                 return result;
             }
-            // 删除 loadNext
         }
     ];
 
-    // ==================== 分类 ====================
+    // ==================================================
+    // 分类（保留 1kkk 原 POST 到 dm5.ashx 的方式）
+    // ==================================================
     category = {
         title: "极速漫画",
         parts: [
@@ -227,6 +472,7 @@ class OneKkk extends ComicSource {
 
             let body = `action=getclasscomics&pageindex=${pageIndex}&pagesize=${pageSize}&categoryid=0&tagid=${encodeURIComponent(tagId)}&status=${statusNum}&usergroup=0&pay=-1&areaid=0&sort=${sortNum}&iscopyright=0`;
 
+            let host = this.baseUrl.replace(/^https?:\/\//i, "");
             let categoryHeaders = {
                 'accept': 'application/json, text/javascript, */*; q=0.01',
                 'accept-encoding': 'gzip, deflate, br, zstd',
@@ -234,7 +480,7 @@ class OneKkk extends ComicSource {
                 'cache-control': 'no-cache',
                 'connection': 'keep-alive',
                 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'host': 'm.1kkk.com',
+                'host': host,
                 'origin': this.baseUrl,
                 'pragma': 'no-cache',
                 'referer': `${this.baseUrl}/${path}/`,
@@ -290,15 +536,18 @@ class OneKkk extends ComicSource {
         ]
     };
 
-    // ==================== 搜索 ====================
+    // ==================================================
+    // 搜索
+    // ==================================================
     search = {
         load: async (keyword, options, page) => {
             let url = `${this.baseUrl}/search?title=${encodeURIComponent(keyword)}&language=1&page=${page}`;
-            let res = await Network.get(url, this._buildHeaders());
+            let res = await Network.get(url, this.headers);
             if (res.status !== 200) throw `Search failed: ${res.status}`;
 
             let doc = new HtmlDocument(res.body);
             let comics = [];
+            let seen = new Set();
             let list = doc.querySelectorAll('.book-list > li');
 
             for (let item of list) {
@@ -307,7 +556,13 @@ class OneKkk extends ComicSource {
                 if (!href) continue;
                 if (!href.startsWith('http')) href = this.baseUrl + href;
 
+                let id = this.getComicId(href);
+                if (!id || seen.has(id)) continue;
+
                 let title = item.querySelector('.book-list-info-title')?.text?.trim();
+                if (!title) title = this.cleanText(item.querySelector('a')?.attributes?.['title'] || '');
+                if (!title) title = "漫画 " + id;
+
                 let coverEl = item.querySelector('.book-list-cover-img');
                 let cover = coverEl?.attributes['src'];
                 if (cover) {
@@ -321,8 +576,9 @@ class OneKkk extends ComicSource {
                 let status = item.querySelector('.book-list-info-bottom-right-font')?.text?.trim();
                 if (status) tags.push(status);
 
+                seen.add(id);
                 comics.push(new Comic({
-                    id: href,
+                    id: id,
                     title: title,
                     cover: cover,
                     description: desc,
@@ -337,100 +593,115 @@ class OneKkk extends ComicSource {
         enableTagsSuggestions: false
     };
 
-    // ==================== 漫画详情 ====================
+    // ==================================================
+    // 漫画详情
+    // ==================================================
     comic = {
         loadInfo: async (id) => {
             if (!id || typeof id !== 'string') throw "ID不能为空";
 
-            let targetUrl = id;
-            if (!targetUrl.startsWith('http')) {
-                if (targetUrl.startsWith('/')) targetUrl = this.baseUrl + targetUrl;
-                else targetUrl = this.baseUrl + '/' + targetUrl;
-            }
+            let comicId = String(id);
+            let targetUrl = /^https?:\/\//i.test(comicId) ? comicId : this.getComicUrl(comicId);
 
-            let res = await Network.get(targetUrl, this._buildHeaders());
+            let res = await Network.get(targetUrl, this.headers);
             if (res.status !== 200) throw `请求失败，状态码: ${res.status}，URL: ${targetUrl}`;
 
             let html = res.body || '';
             this.comic.id = id;
 
-            let toAbsUrl = (value) => {
-                if (!value) return '';
-                let trimmed = value.trim();
-                if (trimmed.startsWith('http')) return trimmed;
-                if (trimmed.startsWith('//')) return 'https:' + trimmed;
-                if (trimmed.startsWith('/')) return this.baseUrl + trimmed;
-                return this.baseUrl + '/' + trimmed;
-            };
-
             let doc = new HtmlDocument(html);
 
-            let title = doc.querySelector('p.detail-main-info-title')?.text?.trim()
-                || doc.querySelector('span.normal-top-title')?.text?.trim()
-                || doc.querySelector('title')?.text?.trim()?.replace(/漫画.*$/i, '')
+            // 标题：优先 .detail-main-info-title / .normal-top-title
+            let title = this.cleanText(doc.querySelector('p.detail-main-info-title')?.text)
+                || this.cleanText(doc.querySelector('span.normal-top-title')?.text)
+                || this.cleanText(doc.querySelector('title')?.text?.replace(/漫画.*$/i, ''))
                 || '未知标题';
 
-            let coverEl = doc.querySelector('.detail-main-cover img')
-                || doc.querySelector('.detail-main-cover .cover-img img');
-            let cover = toAbsUrl(coverEl?.attributes?.src || coverEl?.attributes?.['data-src'] || '');
+            // 封面
+            let cover = "";
+            const coverSelectors = [
+                ".detail-main-cover img",
+                "img.detail-main-bg",
+                ".book-cover img",
+                ".comic-cover img",
+                ".cover img"
+            ];
+            for (const sel of coverSelectors) {
+                const img = doc.querySelector(sel);
+                if (!img) continue;
+                cover = this.getImageUrl(img);
+                if (cover) break;
+            }
+            if (!cover) {
+                const allImgs = doc.querySelectorAll("img");
+                for (const img of allImgs) {
+                    const src = this.getImageUrl(img);
+                    if (this.isUsableImage(src)) { cover = src; break; }
+                }
+            }
 
-            let authorContainer = doc.querySelector('.detail-main-info-author');
+            // 作者
             let author = '未知作者';
+            let authorContainer = doc.querySelector('.detail-main-info-author');
             if (authorContainer) {
                 let authors = [];
                 let links = authorContainer.querySelectorAll('a') || [];
                 for (let i = 0; i < links.length; i++) {
-                    let text = links[i].text?.trim();
+                    let text = this.cleanText(links[i].text);
                     if (text) authors.push(text);
                 }
                 if (authors.length > 0) author = authors.join('，');
                 else {
-                    let raw = authorContainer.text?.replace(/作者[:：]/, '').trim();
+                    let raw = this.cleanText(authorContainer.text?.replace(/作者[:：]/, ''));
                     if (raw) author = raw;
                 }
             } else {
                 let metaAuthor = doc.querySelector('meta[name="Author"]')?.attributes?.content;
-                if (metaAuthor) {
-                    author = metaAuthor.includes(':') ? metaAuthor.split(':').pop().trim() : metaAuthor.trim();
-                }
+                if (metaAuthor) author = metaAuthor.includes(':') ? metaAuthor.split(':').pop().trim() : metaAuthor.trim();
             }
 
-            let status = doc.querySelector('.detail-list-title-1')?.text?.trim() || '未知状态';
-            let descriptionEl = doc.querySelector('.detail-desc');
-            let description = descriptionEl?.text?.trim() || '';
+            // 状态 / 简介
+            let status = this.cleanText(doc.querySelector('.detail-list-title-1')?.text) || '未知状态';
+            let description = this.cleanText(doc.querySelector('.detail-desc')?.text);
             if (!description) description = doc.querySelector('meta[name="Description"]')?.attributes?.content || '';
 
+            // 标签
             let tags = [];
             let tagElements = doc.querySelectorAll('.detail-main-info-class a') || [];
             for (let i = 0; i < tagElements.length; i++) {
-                let tagText = tagElements[i].text?.trim();
-                if (tagText) tags.push(tagText);
+                let tagText = this.cleanText(tagElements[i].text);
+                if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
             }
 
-            let updateTime = doc.querySelector('.detail-list-title-3')?.text?.trim() || '';
+            let updateTime = this.cleanText(doc.querySelector('.detail-list-title-3')?.text) || '';
+
             let starValue = null;
             let starElement = doc.querySelector('.detail-main-info-star');
             if (starElement && starElement.attributes && starElement.attributes['class']) {
-                let starClass = starElement.attributes['class'];
-                let match = starClass.match(/star-(\d+)/i);
+                let match = starElement.attributes['class'].match(/star-(\d+)/i);
                 if (match && match[1]) {
                     let num = parseInt(match[1], 10);
                     if (!isNaN(num)) starValue = num;
                 }
             }
 
+            // 章节列表
             let chapters = new Map();
+            let seen = new Set();
             let selectorItems = doc.querySelectorAll('.detail-selector .detail-selector-item');
+
             if (selectorItems.length > 0) {
                 for (let item of selectorItems) {
-                    let groupName = item.text?.trim();
+                    let groupName = this.cleanText(item.text);
                     if (!groupName || groupName.includes('评论')) continue;
+
                     let onclick = item.attributes['onclick'];
                     let listId = null;
                     if (onclick) {
                         let match = onclick.match(/titleSelect\(.*?,.*?, *['"](.*?)['"]\)/);
                         if (match) listId = match[1];
                     }
+
                     if (listId) {
                         let listEl = doc.getElementById(listId);
                         if (listEl) {
@@ -438,10 +709,15 @@ class OneKkk extends ComicSource {
                             let links = listEl.querySelectorAll('a.chapteritem');
                             for (let link of links) {
                                 let href = link.attributes['href'];
-                                let title = link.text?.trim() || link.attributes['title']?.trim();
-                                if (href && title) {
-                                    if (!href.startsWith('http')) href = toAbsUrl(href);
-                                    groupChapters.set(href, title);
+                                let chapterTitle = this.cleanText(link.text || link.attributes['title']);
+                                if (href && chapterTitle) {
+                                    // 清理章节标题尾部的日期
+                                    chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
+                                    if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
+                                    if (!chapters.has(href) && !seen.has(href)) {
+                                        seen.add(href);
+                                        groupChapters.set(href, chapterTitle);
+                                    }
                                 }
                             }
                             if (groupChapters.size > 0) chapters.set(groupName, groupChapters);
@@ -455,15 +731,17 @@ class OneKkk extends ComicSource {
                 let links = doc.querySelectorAll('a.chapteritem');
                 for (let link of links) {
                     let href = link.attributes['href'];
-                    let title = link.text?.trim() || link.attributes['title']?.trim();
-                    if (href && title) {
-                        if (!href.startsWith('http')) href = toAbsUrl(href);
-                        groupChapters.set(href, title);
+                    let chapterTitle = this.cleanText(link.text || link.attributes['title']);
+                    if (href && chapterTitle) {
+                        chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
+                        if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
+                        groupChapters.set(href, chapterTitle);
                     }
                 }
                 if (groupChapters.size > 0) chapters.set('连载', groupChapters);
             }
 
+            // 推荐
             let parseRecommends = (htmlContent) => {
                 let recs = [];
                 let recPattern = /<li[^>]*class=["'][^"']*(?:list-comic|rec|recommend)[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[^<]*<\/a>[\s\S]*?<a[^>]*>\s*([^<]+)\s*<\/a>/gi;
@@ -474,14 +752,13 @@ class OneKkk extends ComicSource {
                     let cover = m[2];
                     let titleText = (m[3] || '').trim();
                     if (!url || !titleText) continue;
-                    if (!url.startsWith('http')) url = toAbsUrl(url);
-                    if (cover && !cover.startsWith('http')) cover = toAbsUrl(cover);
+                    if (!url.startsWith('http')) url = this.toAbsoluteUrl(url);
+                    if (cover && !cover.startsWith('http')) cover = this.toAbsoluteUrl(cover);
                     recs.push(new Comic({ id: url, title: titleText, cover: cover }));
                     count++;
                 }
                 return recs;
             };
-
             let recommends = parseRecommends(html);
 
             let midMatch = html.match(/mid["\s:]*(\d+)/i) || html.match(/var mid = (\d+)/i) || html.match(/mid=(\d+)/i) || html.match(/var DM5_MID = (\d+)/i) || html.match(/var COMIC_MID=(\d+)/i);
@@ -507,72 +784,68 @@ class OneKkk extends ComicSource {
             });
         },
 
+        // ==================================================
+        // 章节图片
+        // ==================================================
         loadEp: async (comicId, epId) => {
-            let url = `${epId}/`;
-            let res = await Network.get(url, this._buildHeaders());
-            if (res.status !== 200) throw new Error('获取章节内容失败: ' + res.status);
-            let html = res.body;
-            let document = new HtmlDocument(html);
-            let scripts = document.querySelectorAll("script");
-            let script = null;
-            for (let s of scripts) {
-                if (s.innerHTML.includes('eval(function(p,a,c,k,e,d)')) {
-                    script = s.innerHTML;
-                    break;
-                }
+            let chapterUrl;
+            if (/^https?:\/\//i.test(epId)) {
+                chapterUrl = epId;
+            } else if (epId.startsWith("/")) {
+                chapterUrl = this.baseUrl + epId;
+            } else {
+                chapterUrl = this.baseUrl + "/" + epId;
             }
-            if (!script) throw ('无法显示付费内容/章节不存在');
+            if (!chapterUrl.endsWith("/")) chapterUrl += "/";
 
-            let pStart = script.indexOf("}('") + 3;
-            let boundaryMatch = script.substring(pStart).match(/',(\d+),(\d+),'/);
-            if (!boundaryMatch) throw new Error('无法解析脚本参数边界');
-            let boundaryIndex = boundaryMatch.index + pStart;
-            let rawP = script.substring(pStart, boundaryIndex);
-            let a = parseInt(boundaryMatch[1]);
-            let c = parseInt(boundaryMatch[2]);
-            let kContentStart = boundaryIndex + boundaryMatch[0].length;
-            let kEnd = script.indexOf("'.split", kContentStart);
-            let rawK = script.substring(kContentStart, kEnd);
-            let dict = rawK.split('|');
+            const res = await Network.get(chapterUrl, {
+                ...this.headers,
+                "Referer": chapterUrl
+            });
+            if (res.status !== 200) throw "Invalid status code: " + res.status;
 
-            let decrypt = (p, a, c, k) => {
-                let e = (c) => (c < a ? '' : e(parseInt(c / a))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
-                let d = {};
-                while (c--) d[e(c)] = k[c] || e(c);
-                return p.replace(/\b\w+\b/g, w => d[w] || w);
-            };
+            const html = res.body;
+            const decoded = this.unpackDM5(html);
 
-            let decrypted = decrypt(rawP, a, c, dict);
-            let arrayMatch = decrypted.match(/\[(.*?)\]/);
-            if (!arrayMatch) throw new Error('无法从解密后的脚本中提取图片数组');
-            let arrayContent = arrayMatch[1];
-            let images = arrayContent.split(',').map(item => {
-                return item.trim().replace(/^\\?['"]|\\?['"]$/g, '');
-            }).filter(url => url && url.startsWith('http'));
-            return { images };
+            let images = this.extractImages(decoded);
+            if (images.length === 0) images = this.extractImages(html);
+
+            if (images.length === 0) throw "未找到章节图片";
+
+            images = images
+                .map(url => this.cleanUrl(url))
+                .filter(url => /^https?:\/\//i.test(url))
+                .filter(url => !url.endsWith("\\"));
+
+            if (images.length === 0) throw "章节图片 URL 无效";
+
+            return { images: [...new Set(images)] };
         },
 
         onImageLoad: (url, comicId, epId) => {
-            let referer = '';
-            if (epId && typeof epId === 'string') {
-                if (!epId.startsWith('http')) referer = this.baseUrl + epId;
-                else referer = epId;
+            let referer = "";
+            if (epId && typeof epId === "string") {
+                if (!epId.startsWith("http")) {
+                    referer = this.getComicUrl(epId);
+                    if (!referer.endsWith("/")) referer += "/";
+                } else {
+                    referer = epId;
+                }
             } else {
-                referer = this.baseUrl + '/';
+                referer = this.baseUrl + "/";
             }
-            return {
-                headers: this._buildImageHeaders(url, referer)
-            };
+            return { headers: this._buildImageHeaders(url, referer) };
         },
 
         onThumbnailLoad: (url) => {
-            return {
-                headers: this._buildImageHeaders(url, this.baseUrl + '/')
-            };
+            return { headers: this._buildImageHeaders(url, this.baseUrl + "/") };
         },
 
         likeComic: async (id, isLike) => { /* 暂不实现 */ },
 
+        // ==================================================
+        // 评论系统（保留）
+        // ==================================================
         loadComments: async (comicId, subId, page, replyTo) => {
             if (!subId) throw new Error('漫画ID未找到，无法加载评论');
             let requestPage = page;
@@ -583,7 +856,8 @@ class OneKkk extends ComicSource {
                 requestPage = parseInt(parts[1]);
             }
 
-            let url = `${this.baseUrl}/manhua-${comicId}/pagerdata.ashx`;
+            let comicSlug = String(comicId || '').replace(/^\/+|\/+$/g, '');
+            let url = `${this.baseUrl}/manhua-${comicSlug}/pagerdata.ashx`;
             let params = {
                 d: Date.now(),
                 pageindex: (requestPage - 1),
@@ -594,15 +868,16 @@ class OneKkk extends ComicSource {
             let query = Object.keys(params).map(k => `${k}=${encodeURIComponent(params[k])}`).join('&');
             url += '?' + query;
 
+            let host = this.baseUrl.replace(/^https?:\/\//i, "");
             let headers = {
                 'accept': '*/*',
                 'accept-encoding': 'gzip, deflate, br, zstd',
                 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'cache-control': 'no-cache',
                 'connection': 'keep-alive',
-                'host': 'm.1kkk.com',
+                'host': host,
                 'pragma': 'no-cache',
-                'referer': `${this.baseUrl}/manhua-${comicId}/`,
+                'referer': `${this.baseUrl}/manhua-${comicSlug}/`,
                 'sec-ch-ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
                 'sec-ch-ua-mobile': '?1',
                 'sec-ch-ua-platform': '"Android"',
@@ -666,6 +941,7 @@ class OneKkk extends ComicSource {
             }
 
             let pageSize = 20;
+            let host = this.baseUrl.replace(/^https?:\/\//i, "");
             let url = `${this.baseUrl}/showcomment/pagerdata.ashx?d=${Date.now()}&pageindex=${requestPage}&pagesize=${pageSize}&cid=${cid}&t=9`;
             let headers = {
                 'accept': '*/*',
@@ -673,7 +949,7 @@ class OneKkk extends ComicSource {
                 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'cache-control': 'no-cache',
                 'connection': 'keep-alive',
-                'host': 'm.1kkk.com',
+                'host': host,
                 'pragma': 'no-cache',
                 'referer': `${this.baseUrl}/showcomment/?cid=${cid}`,
                 'sec-fetch-dest': 'empty',
@@ -721,17 +997,14 @@ class OneKkk extends ComicSource {
             return { comments, maxPage: replyTo ? 1 : maxPage };
         },
 
-        // ===== 修复链接解析跳转 =====
+        // ==================================================
+        // 链接解析（保留，返回不带斜杠的 id）
+        // ==================================================
         link: {
-            domains: ["m.1kkk.com"],
+            domains: ["m.1kkk.com", "www.1kkk.com", "1kkk.com"],
             linkToId: (url) => {
-                // 匹配 /manhua20802/ 或 /manhua-20802/ 格式
-                let match = url.match(/\/manhua-?\d+(?:\/|$)/);
-                if (match) return match[0];
-                // 匹配 /m20802/ 格式
-                match = url.match(/\/m\d+(?:\/|$)/);
-                if (match) return match[0];
-                return null;
+                let id = this.getComicId(url);
+                return id || null;
             }
         }
     };
