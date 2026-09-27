@@ -108,8 +108,8 @@
         "name": "哔哩漫画",
         "fileName": "bilimanga.js",
         "key": "bilimanga",
-        "version": "1.5.0",
-        "description": "非个人自制，针对搜索的问题提供妥协方案（需venera客户端支持），增加漫画详情页链接复制，支持链接解析跳转"
+        "version": "1.6.2",
+        "description": "非个人自制，修复搜索功能，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "51漫画",
@@ -164,14 +164,14 @@
         "name": "动漫屋",
         "fileName": "dm5.js",
         "key": "dm5",
-        "version": "1.0.1",
+        "version": "2.0.4",
         "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
         "name": "极速漫画",
         "fileName": "one_kkk.js",
         "key": "one_kkk",
-        "version": "1.0.1",
+        "version": "2.0.0",
         "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -287,6 +287,20 @@
         "description": "官方版本"
     },
     {
+        "name": "Kavita",
+        "fileName": "kavita.js",
+        "key": "kavita",
+        "version": "1.0.0",
+        "description": "官方版本"
+    },
+    {
+        "name": "Komga",
+        "fileName": "komga.js",
+        "key": "komga",
+        "version": "1.0.0",
+        "description": "官方版本"
+    },
+    {
         "name": "包子漫画",
         "fileName": "baozi.js",
         "key": "baozi",
@@ -360,8 +374,8 @@
         "name": "Pixiv",
         "fileName": "pixiv.js",
         "key": "pixiv",
-        "version": "1.8.3",
-        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，已支持多账号，暂时无法攻破直连问题"
+        "version": "1.9.0",
+        "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，已支持多账号，增加系列连载，增加服务端 AI/R18 设置，增加推荐画师缓存，暂时无法攻破直连问题"
     },
     {
         "name": "yande.re",
