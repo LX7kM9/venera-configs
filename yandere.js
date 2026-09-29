@@ -1114,7 +1114,7 @@ class YandeRe extends ComicSource {
             title: "收藏夹用户名",
             type: "input",
             default: "",
-            description: "只填 yande.re 用户名即可（如 轻小说万岁），不要带 vote:3: 或 order:vote。留空会自动尝试检测。"
+            description: "只填 yande.re 用户名即可，不要带 vote:3: 或 order:vote。留空会自动尝试检测。"
         },
     }
 }
