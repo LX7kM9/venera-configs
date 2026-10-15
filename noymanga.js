@@ -1,7 +1,7 @@
 class Noymanga extends ComicSource {
   name = "NoyManga";
   key = "noymanga";
-  version = "1.1.4";   // 版本升级，支持复制链接与链接解析
+  version = "1.1.6";   // 整合 v1.1.5 的 allow-adult 头 + 账号密码登录
   minAppVersion = "1.6.0";
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/noymanga.js";
 
@@ -20,6 +20,26 @@ class Noymanga extends ComicSource {
   signInReadOnlyDepth = 0;
   signInSuppressionBeforeReadOnly = false;
 
+  // ==================== 内容类型（全年龄 / 成人） ====================
+  //
+  // 站点把该设置作为**请求头 `allow-adult`** 附加到所有 /api/* 请求上：
+  //   assets/client-NJP-QThl.js:
+  //     $.interceptors.request.use(e => (e.headers.set('allow-adult', r().allowAdult), e))
+  //   assets/app-settings-CO9umcLh.js:
+  //     localStorage['app:settings'] = { allowAdult: 'false' }  ← 站点默认值
+  //   assets/settings-BYJiaBjU.js（设置页下拉框）:
+  //     false => 僅全年齡內容    true => 僅成人內容    both => 顯示所有內容
+  allowAdultValue() {
+    let value = "";
+    try {
+      value = String(this.loadSetting("content_type") || "").trim().toLowerCase();
+    } catch (error) {
+      value = "";
+    }
+    if (value !== "false" && value !== "both" && value !== "true") return "false";
+    return value;
+  }
+
   apiHeaders(contentType) {
     const headers = {
       "Accept": "application/json, text/plain, */*",
@@ -27,6 +47,7 @@ class Noymanga extends ComicSource {
       "Origin": this.baseUrl,
       "User-Agent": this.userAgent,
       "Referer": this.baseUrl + "/",
+      "allow-adult": this.allowAdultValue(),   // ★ 移植自 v1.1.5
     };
     if (contentType) headers["Content-Type"] = contentType;
     return headers;
@@ -48,7 +69,7 @@ class Noymanga extends ComicSource {
   }
 
   loginRequiredMessage() {
-    return "尚未登录 NoyManga：请先在源设置中点“登录”（会打开网页），完成后再点“连接测试”里的“测试”。无需手动提取令牌。";
+    return "尚未登录 NoyManga：请在源设置中填写账号与密码登录（点账号菜单 → 登录）。";
   }
 
   isSuccessStatus(value) {
@@ -500,6 +521,16 @@ class Noymanga extends ComicSource {
   }
 
   settings = {
+    content_type: {                  // ★ 移植自 v1.1.5
+      title: "内容类型",
+      type: "select",
+      default: "false",
+      options: [
+        { value: "false", text: "仅全年龄内容（默认）" },
+        { value: "both", text: "显示所有内容（含成人）" },
+        { value: "true", text: "仅成人内容" },
+      ],
+    },
     account_status: {
       title: "账号",
       type: "callback",
@@ -590,30 +621,64 @@ class Noymanga extends ComicSource {
     }
   }
 
+  // ==================== 账号密码登录（移植自 v1.1.5） ====================
+  //
+  // 为什么弃用「网页登录」：noymanga.com 是 React SPA，登录成功后是
+  // `navigate('/', {replace:true})` 前端路由跳转，Android WebView 不触发
+  // shouldOverrideUrlLoading；全站资源也没改过 document.title。
+  // 所以 Venera 的 onNavigation / onTitleChange 两个回调都收不到，
+  // checkStatus 永远不会被调用 —— 网页登录在这站一定失败。
+  //
+  // 站点自己的登录接口是开放的普通表单接口：
+  //   POST https://noymanga.com/api/login   body: user=<账号>&pass=<密码>
+  async loginWithPassword(username, password) {
+    const user = String(username == null ? "" : username).trim();
+    const pass = String(password == null ? "" : password);
+    if (!user || !pass) throw "請填寫帳號（用戶名或電郵）與密碼";
+
+    const response = await Network.post(
+      this.apiBaseUrl + "/api/login",
+      Object.assign({}, this.apiHeaders("application/x-www-form-urlencoded"), {
+        "Referer": this.baseUrl + "/login",
+      }),
+      this.formEncode([["user", user], ["pass", pass]]),
+    );
+
+    if (response.status < 200 || response.status >= 400) {
+      throw "登入請求失敗（HTTP " + response.status + "）";
+    }
+
+    let payload = null;
+    try {
+      payload = JSON.parse(String(response.body || ""));
+    } catch (error) {
+      payload = null;
+    }
+    if (!payload || typeof payload !== "object") throw "登入回應無法解析";
+
+    const status = String(payload.status == null ? "" : payload.status).trim().toLowerCase();
+    if (status === "error") throw "帳號或密碼錯誤";
+    if (status === "danger") throw "帳號或密碼包含不允許的字元";
+    if (status && status !== "ok") {
+      throw "登入失敗：" + String(payload.msg || payload.message || status);
+    }
+
+    this.signInGeneration += 1;
+    this.clearLocalData(this.signInCacheKey);
+    this.autoSignInAttemptDate = "";
+    const info = await this.assertLoggedIn();
+    return this.accountLabel(info);
+  }
+
   account = {
-    loginWithWebview: {
-      url: "https://noymanga.com/login",
-      checkStatus: (url, title) => {
-        if (!/Noy(?:Acg|Manga)/i.test(String(title || "").trim())) return false;
-        const value = String(url || "").trim().split("#")[0].split("?")[0].replace(/\/+$/, "");
-        const match = value.match(/^https:\/\/noymanga\.com(?::443)?(\/.*)?$/i);
-        const path = match ? (match[1] || "/") : "";
-        return path === "/" || path === "/user" || path === "/favorite";
-      },
-      onLoginSuccess: () => {
-        this.signInGeneration += 1;
-        this.clearLocalData(this.accountCacheKey);
-        this.clearLocalData(this.signInCacheKey);
-        this.autoSignInAttemptDate = "";
-        UI.showMessage("登录完成，Cookie 已自动接管；无需提取任何令牌。可回到源设置检查账号或运行连接测试。");
-      },
-    },
+    // Venera 的约定：抛异常 = 登录失败（异常文案会直接显示），正常返回 = 成功
+    login: (username, password) => this.loginWithPassword(username, password),
     logout: () => {
       this.clearAccountState();
       this.clearLocalData("_localStorage");
       Network.deleteCookies(this.baseUrl);
     },
-    registerWebsite: null,
+    registerWebsite: "https://noymanga.com/register",
   };
 
   search = {
@@ -638,7 +703,7 @@ class Noymanga extends ComicSource {
 
   explore = [
     {
-      title: "NoyManga · 首页",
+      title: "NoyManga",
       type: "singlePageWithMultiPart",
       load: async () => {
         this.maybeAutoSignIn();
@@ -666,7 +731,7 @@ class Noymanga extends ComicSource {
   ];
 
   category = {
-    title: "NoyManga · 分类",
+    title: "NoyManga",
     parts: [
       {
         name: "排序",
@@ -743,14 +808,13 @@ class Noymanga extends ComicSource {
   };
 
   comic = {
-    // 新增：ID 格式为纯数字
+    // ★ 新增：ID 格式为纯数字
     idMatch: "^\\d+$",
 
-    // 新增：链接解析
+    // ★ 新增：链接解析
     link: {
       domains: ["noymanga.com", "www.noymanga.com"],
       linkToId: (url) => {
-        // 支持 /manga/{id} 与 /reader/{cid}/{id} 两种格式
         let match = url.match(/\/manga\/(\d+)(?:[/?#]|$)/);
         if (match) return match[1];
         match = url.match(/\/reader\/\d+\/(\d+)(?:[/?#]|$)/);
@@ -799,7 +863,7 @@ class Noymanga extends ComicSource {
         author: author,
         tags: tags,
         chapters: chapters,
-        url: this.baseUrl + "/manga/" + bid,   // 用于复制链接
+        url: this.baseUrl + "/manga/" + bid,   // ★ 复制链接
         isFavorite: this.normalizeFavoriteState(info.F),
       });
     },

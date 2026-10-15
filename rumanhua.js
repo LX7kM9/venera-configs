@@ -1,7 +1,7 @@
 class RuManHua extends ComicSource {
     name = "如漫画"
     key = "rumanhua"
-    version = "2.4.1"   // 动态解析 tool.js 获取搜索接口，缓存 1 小时
+    version = "2.4.2"   // 移植章节顺序归一化（修「下一章跳上一话」）
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/rumanhua.js"
 
@@ -72,19 +72,15 @@ class RuManHua extends ComicSource {
     }
 
     // ===== 动态解析搜索接口 =====
-    // 从 /static/js/tool.js 的 get_search_data() 里提取真实的 URL、方法、参数名。
-    // 结果缓存 1 小时；解析失败时使用默认值（当前站点可用：POST /s + k）
     async _resolveSearchApi() {
         const now = Date.now();
         if (this._searchApi && this._searchApiExpire && now < this._searchApiExpire) {
             return this._searchApi;
         }
 
-        // 默认值（站点当前已确认可用）
         let api = { method: "POST", path: "/s", param: "k", source: "default" };
 
         try {
-            // 从首页找 tool.js 的带版本号 URL（如 /static/js/tool.js?v=171200013）
             let toolUrl = this.baseUrl + "/static/js/tool.js";
             try {
                 const homeBody = await this._fetchBody("home", this.baseUrl + "/");
@@ -94,12 +90,10 @@ class RuManHua extends ComicSource {
 
             const js = await this._fetchBody("tool.js", toolUrl);
 
-            // 定位 get_search_data 函数体
             const idx = js.indexOf("function get_search_data");
             if (idx >= 0) {
                 const seg = js.slice(idx, idx + 8000);
 
-                // 优先匹配 $.post("/s", { k: k })
                 let mm = seg.match(/\$\.post\(\s*["']([^"']+)["']\s*,\s*\{([^}]*)\}\s*\)/);
                 if (mm) {
                     api.method = "POST";
@@ -108,7 +102,6 @@ class RuManHua extends ComicSource {
                     if (pm) api.param = pm[1];
                     api.source = "tool.js:$.post";
                 } else {
-                    // 匹配 $.get("...url...")
                     mm = seg.match(/\$\.get\(\s*["']([^"']+)["']/);
                     if (mm) {
                         api.method = "GET";
@@ -117,7 +110,6 @@ class RuManHua extends ComicSource {
                         if (qm) api.param = qm[1];
                         api.source = "tool.js:$.get";
                     } else {
-                        // 匹配 $.ajax({ url: "...", type: "...", data: { k: ... } })
                         mm = seg.match(/\$\.ajax\(\s*\{([\s\S]{0,800}?)\}\s*\)/);
                         if (mm) {
                             const block = mm[1];
@@ -144,6 +136,117 @@ class RuManHua extends ComicSource {
         this._searchApi = api;
         this._searchApiExpire = now + 60 * 60 * 1000;
         return api;
+    }
+
+    // ★ 移植自 v1.2.8：解析章节标题里的「季/卷 + 话/回/集」
+    //
+    // 站点标题写法很乱，实测同一部作品里同时存在四种：
+    //   「第131回 卑鄙的联手 下」 / 「386回 盟主的责任」 / 「130 下」 / 「321 大补方」
+    // 所以：①「第」做成可选；②补一条「纯数字开头」的规则，
+    // 否则老章节会被当成番外/公告排到末尾。
+    parseChapterKey(title) {
+        const text = String(title == null ? "" : title);
+
+        const chapterMatch = text.match(
+            /(?:第\s*)?(\d+(?:\.\d+)?)\s*(?:话|話|回|集|章|節|节)/
+        );
+
+        const volumeMatch = text.match(/第\s*(\d+(?:\.\d+)?)\s*(?:季|卷|冊|册)/);
+
+        if (chapterMatch) {
+            return {
+                series: "chapter",
+                volume: volumeMatch ? parseFloat(volumeMatch[1]) : 0,
+                number: parseFloat(chapterMatch[1])
+            };
+        }
+
+        // 纯数字开头（数字后必须空格/括号/结尾，避免把「3月15日延更公告」当章节；
+        // 「118（上)」这类括号写法也放行）
+        const bareMatch = text.match(/^\s*(\d+(?:\.\d+)?)(?=[\s（(]|$)/);
+
+        if (bareMatch) {
+            return {
+                series: "chapter",
+                volume: 0,
+                number: parseFloat(bareMatch[1])
+            };
+        }
+
+        if (volumeMatch) {
+            return {
+                series: "volume",
+                volume: 0,
+                number: parseFloat(volumeMatch[1])
+            };
+        }
+
+        return null;
+    }
+
+    // ★ 移植自 v1.2.8：站点章节列表本身就是倒序（最新话在前），
+    // Venera 的「下一章」= 章节在列表里的下标 +1，倒序列表会让下一章跳成上一话。
+    // 只在检测到主序列确实倒序时才重排，正序原样返回（零风险）。
+    normalizeChapterOrder(chapters) {
+        const items = [];
+        let position = 0;
+
+        for (const entry of chapters.entries()) {
+            items.push({
+                href: entry[0],
+                title: entry[1],
+                position: position++,
+                key: this.parseChapterKey(entry[1])
+            });
+        }
+
+        const groups = {};
+        for (const item of items) {
+            if (!item.key) continue;
+            if (!groups[item.key.series]) groups[item.key.series] = [];
+            groups[item.key.series].push(item);
+        }
+
+        let mainSeries = null;
+        for (const name of Object.keys(groups)) {
+            if (!mainSeries || groups[name].length > groups[mainSeries].length) {
+                mainSeries = name;
+            }
+        }
+
+        if (!mainSeries || groups[mainSeries].length < 3) {
+            return chapters;
+        }
+
+        const mainItems = groups[mainSeries];
+        const first = mainItems[0].key;
+        const last = mainItems[mainItems.length - 1].key;
+
+        const descending =
+            first.volume > last.volume ||
+            (first.volume === last.volume && first.number > last.number);
+
+        if (!descending) {
+            return chapters;
+        }
+
+        const sorted = mainItems.slice().sort((a, b) => {
+            if (a.key.volume !== b.key.volume) return a.key.volume - b.key.volume;
+            if (a.key.number !== b.key.number) return a.key.number - b.key.number;
+            return a.position - b.position;
+        });
+
+        const ordered = new Map();
+        for (const item of sorted) {
+            ordered.set(item.href, item.title);
+        }
+
+        for (const item of items) {
+            if (item.key && item.key.series === mainSeries) continue;
+            ordered.set(item.href, item.title);
+        }
+
+        return ordered;
     }
 
     parseComicAnchor(a) {
@@ -221,7 +324,7 @@ class RuManHua extends ComicSource {
             }
         },
         {
-            title: "最新更新",
+            title: "如漫画-最新更新",
             type: "singlePageWithMultiPart",
             load: async () => {
                 try {
@@ -313,7 +416,6 @@ class RuManHua extends ComicSource {
         return comics;
     }
 
-    // ===== 搜索：动态解析接口 + JSON 解析 =====
     search = {
         load: async (keyword, options, page) => {
             const kw = String(keyword || "").trim();
@@ -321,7 +423,6 @@ class RuManHua extends ComicSource {
             if (kw.length == 1) throw "搜索漫画不能小于2个字哦";
             if (kw.length > 12) throw "搜索漫画不能大于12个字哦";
 
-            // 动态解析接口（带缓存）
             const api = await this._resolveSearchApi();
 
             const headers = {
@@ -472,6 +573,11 @@ class RuManHua extends ComicSource {
                     const [cid, ct] = rawChapters[i];
                     chapters.set(cid, ct);
                 }
+
+                // ★ 移植自 v1.2.8：章节顺序归一化
+                // 站点列表可能本身就是倒序（最新话在前），Venera 的「下一章」= 下标 +1，
+                // 会跳成上一话；只在检测到主序列倒序时才重排，正序原样返回。
+                chapters = this.normalizeChapterOrder(chapters);
 
                 doc.dispose();
                 if (chapters.size === 0) throw "未解析到章节列表";

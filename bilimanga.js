@@ -1,7 +1,15 @@
+/** @type {import('./_venera_.js')} */
+
+// 【可選】圖片轉碼代理模板，留空 = 直連原站。
+// 本站章節圖只有 AVIF，部分 Android 機型解不了；若你自建了能轉碼的代理，填在這裡即可全域生效。
+//   const IMG_PROXY_TEMPLATE = "https://example.com/avif2jpg?url={url}";
+// 說明：{url} 會被替換成經過 URL 編碼的原始圖片地址。
+const IMG_PROXY_TEMPLATE = "";
+
 class BiliManga extends ComicSource {
   name = "哔哩漫画";
   key = "bilimanga";
-  version = "1.6.2"; // 新增限流识别
+  version = "1.6.3"; // 移植 v1.1.7 图片加载加固 / 账号 WebView 登录
   minAppVersion = "1.6.0";
 
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/bilimanga.js";
@@ -10,27 +18,117 @@ class BiliManga extends ComicSource {
     return "https://www.bilimanga.net";
   }
 
+  // ============================================================
+  // 图片加载加固（移植自 v1.1.7）
+  // ============================================================
+
+  // 統一的手機 UA（Chrome 131 / Android 14）。
+  // 舊版寫的是 "Android 10; Pixel 5"，Pixel 5 出廠就是 Android 11，UA 自相矛盾，
+  // Cloudflare WAF 會把這種不自洽的 UA 當成機器人；這裡改成自洽的一組。
+  mobileUA() {
+    return "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+  }
+
+  // 圖片請求頭檔位（依序輪換重試）。真網實測圖片 CDN 的 WAF 對請求頭很敏感：
+  //   帶 Accept-Language（其它隨意） -> 200 image/avif
+  //   不帶 Accept-Language           -> 403（5486 字節 Cloudflare 攔截頁）
+  // 所以第一檔用完整的移動端瀏覽器指紋，後面幾檔逐步降級，避免被同一條規則反覆攔。
+  imageHeaderProfiles(referer) {
+    const ua = this.mobileUA();
+    const accept = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+    const lang = "zh-TW,zh;q=0.9,en;q=0.8";
+    return [
+      // 1) 完整移動端瀏覽器（含 Client Hints + Sec-Fetch-*）
+      {
+        "User-Agent": ua,
+        "Accept": accept,
+        "Accept-Language": lang,
+        "Referer": referer,
+        "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?1",
+        "sec-ch-ua-platform": '"Android"',
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-site",
+      },
+      // 2) 精簡版（只保留實測必需的 UA/Accept/Accept-Language/Referer）
+      {
+        "User-Agent": ua,
+        "Accept": accept,
+        "Accept-Language": lang,
+        "Referer": referer,
+      },
+      // 3) iOS Safari（換一套指紋，繞開針對 Chrome 的規則）
+      {
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1",
+        "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9",
+        "Referer": referer,
+      },
+      // 4) 不帶 Referer（實測不帶 Referer 也可能 200，多一個組合多一分成功率）
+      {
+        "User-Agent": ua,
+        "Accept": accept,
+        "Accept-Language": lang,
+      },
+    ];
+  }
+
+  // 圖片字節校驗：確認真的是圖片再交給 Venera 寫緩存。
+  // Venera 的圖片下載（lib/network/images.dart）拿到什麼都直接寫緩存，
+  // 一旦把 Cloudflare 的 403 攔截頁 HTML 存進去，就會一直報
+  // `Exception: Could not decompress image.`，重開章節也沒用。
+  static validateImageBytes(buffer) {
+    let b = null;
+    try {
+      b = new Uint8Array(buffer);
+    } catch (e) {
+      return buffer;
+    }
+    // 首字節是 '<' 說明是 HTML（Cloudflare 攔截頁）
+    if (b.length > 0 && b[0] === 0x3c) {
+      throw "圖片響應是 HTML（被站點風控攔截）";
+    }
+    if (b.length >= 12) {
+      const ftyp = b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70; // AVIF/HEIF 'ftyp'
+      const jpeg = b[0] === 0xff && b[1] === 0xd8;
+      const png = b[0] === 0x89 && b[1] === 0x50;
+      const riff = b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46; // WebP(RIFF)
+      const gif = b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46;
+      if (!ftyp && !jpeg && !png && !riff && !gif) {
+        throw "圖片響應不是圖片格式（很可能被站點風控攔截）";
+      }
+    }
+    return buffer;
+  }
+
+  // 關鍵：帶移動端 Client Hints + night=0 cookie，閱讀頁才會返回圖片
   pageHeaders() {
     return {
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 10; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+      "User-Agent": this.mobileUA(),
       "Accept":
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Referer": "https://www.bilimanga.net/",
-      "sec-ch-ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
       "sec-ch-ua-mobile": "?1",
       "sec-ch-ua-platform": '"Android"',
     };
   }
 
   init() {
+    // 阅读页必须带 night=0 cookie 才返回图片；通过引擎 cookie 罐保存，
+    // 避免手动 Cookie 头覆盖后续 WebView 登录产生的登录 cookie。
     try {
       Network.setCookies(this.baseUrl, [
         new Cookie({ name: "night", value: "0", domain: "www.bilimanga.net" }),
       ]);
     } catch (e) {}
   }
+
+  // ============================================================
+  // 账号（移植自 v1.1.7）
+  // ============================================================
 
   account = {
     loginWithWebview: {
@@ -52,6 +150,10 @@ class BiliManga extends ComicSource {
     },
     registerWebsite: "https://www.bilimanga.net/register.php",
   };
+
+  // ============================================================
+  // 通用
+  // ============================================================
 
   async fetchBody(label, url) {
     let res = await Network.get(url, this.pageHeaders());
@@ -129,11 +231,10 @@ class BiliManga extends ComicSource {
 
   /**
    * 单次搜索：换票 → POST → 解析
-   * 返回值：
-   *   { comics: [...], maxPage }        → 有结果
-   *   { comics: [], empty: true }       → 站内搜索页正常返回但 0 条
-   *   { limited: true }                 → 站点限流（两次搜索间隔 < 5 秒）
-   *   null                              → 请求失败 / 未拿到搜索页（可能 guard 未过）
+   *   { comics, maxPage }   → 有结果
+   *   { comics: [], empty: true } → 站内搜索页正常返回但 0 条
+   *   { limited: true }     → 站点限流
+   *   null                  → 请求失败 / 未拿到搜索页
    */
   async runSearch(q, attempts) {
     const enc = encodeURIComponent(q);
@@ -157,7 +258,6 @@ class BiliManga extends ComicSource {
         if (res.status === 200 && res.body) {
           const body = String(res.body);
 
-          // 优先识别限流错误页
           if (/兩次搜索的間隔|两次搜索的间隔|間隔時間不得少於|间隔时间不得少于/.test(body)) {
             return { limited: true };
           }
@@ -167,19 +267,16 @@ class BiliManga extends ComicSource {
             return { comics: comics, maxPage: this.extractMaxPage(body, 1) };
           }
 
-          // 唯一命中被 302 到详情页时，从详情页还原单条
           const single = this.parseSingleDetail(body);
           if (single) {
             return { comics: [single], maxPage: 1 };
           }
 
-          // 拿到了搜索页但 0 条 → 「无结果」
           if (/搜索結果|搜索结果/.test(body) || /page-finish/.test(body)) {
             return { comics: [], maxPage: 1, empty: true };
           }
         }
 
-        // 兼容 Network 未跟随重定向
         const loc = res.headers && (res.headers.location || res.headers.Location);
         if (
           loc &&
@@ -214,6 +311,7 @@ class BiliManga extends ComicSource {
       if (m) id = m[1];
     }
     if (!id) {
+      // v1.1.7 的兜底：从目录链接还原
       const m = /\/read\/(\d+)\/catalog/.exec(html);
       if (m) id = m[1];
     }
@@ -367,7 +465,7 @@ class BiliManga extends ComicSource {
   ];
 
   // ============================================================
-  // 分类页（65 个分类）
+  // 分类页
   // ============================================================
 
   category = {
@@ -422,7 +520,7 @@ class BiliManga extends ComicSource {
   };
 
   // ============================================================
-  // 搜索：区分「无结果」「限流」「未过 guard」
+  // 搜索
   // ============================================================
 
   search = {
@@ -434,11 +532,10 @@ class BiliManga extends ComicSource {
       }
 
       const variants = this.searchVariants(kw);
-      let gotEmptyResult = false;   // 见过「搜索页返回但 0 条」
-      let gotLimited = false;       // 见过「限流错误页」
+      let gotEmptyResult = false;
+      let gotLimited = false;
 
       for (let i = 0; i < variants.length; i++) {
-        // 站点对连续搜索限流，两次查询之间至少等 6 秒
         if (i > 0) {
           try { await new Promise((r) => setTimeout(r, 6000)); } catch (e) {}
         }
@@ -448,27 +545,21 @@ class BiliManga extends ComicSource {
         if (r && r.comics && r.comics.length > 0) {
           return r;
         }
-        if (r && r.empty) {
-          gotEmptyResult = true;
-        }
+        if (r && r.empty) gotEmptyResult = true;
         if (r && r.limited) {
           gotLimited = true;
-          // 命中限流就不要再试变体了，避免越试越黑
           break;
         }
       }
 
-      // 被站点限流
       if (gotLimited) {
         throw "搜索过于频繁，请等 5~10 秒后再试。";
       }
 
-      // 过了 guard，站点返回了搜索页但确实 0 条
       if (gotEmptyResult) {
         throw "未搜到相关漫画。可缩短关键词重试，或浏览器搜索后复制链接到 Venera 解析。";
       }
 
-      // 没拿到搜索页（未过 guard / 无响应 / 被拦截）
       throw "搜索请求未通过源站 JS 校验。建议浏览器搜索漫画后复制链接到 Venera 解析。";
     },
     optionList: [],
@@ -586,30 +677,60 @@ class BiliManga extends ComicSource {
       if (images.length === 0) {
         throw "未解析到圖片（可能需要移動端環境，或章節為 VIP）";
       }
-      return { images: images };
+
+      // 【關鍵】給每個圖片地址帶上緩存版本號，用來**繞開已被污染的舊圖片緩存**。
+      //
+      // 原因：Venera 的圖片緩存 key 就是圖片 URL。只要歷史上某一次拿到 Cloudflare 的 403
+      // 攔截頁並被寫進緩存，閱讀器再打開時會**優先使用緩存裡的字节**，於是永遠報
+      // `Exception: Could not decompress image.`，點重試、重開章節都沒用。
+      // 這裡統一加 ?v=<版本>，改一次版本號就等於給全部章節圖換一個 cache key，
+      // 老用戶不用手動清緩存也能自動恢復。
+      const CACHE_BUST = "v=163";
+      let busted = [];
+      for (let src of images) {
+        busted.push(src + (src.indexOf("?") === -1 ? "?" : "&") + CACHE_BUST);
+      }
+      return { images: busted };
     },
 
-    onImageLoad: (url) => {
-      let abs = this._abs(url);
-      return {
-        url: abs,
-        headers: {
-          ...this.pageHeaders(),
-          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          Referer: "https://www.bilimanga.net/",
-        },
+    // 图片加载加固（移植自 v1.1.7）
+    //
+    // 真網複測糾正：決定性的是 **Accept-Language**：缺了必 403（5486 字節 CF 攔截頁）。
+    // 攔截頁一旦被 Venera 寫進圖片緩存，就會一直報 `Exception: Could not decompress image.`。
+    // 所以下面用 onResponse 做文件頭校驗，不是圖片就拋錯，讓 Venera 走 onLoadFailed 重試而不是
+    // 把攔截頁存下來。
+    onImageLoad: (url, comicId, epId) => {
+      const referer =
+        comicId && epId
+          ? this.baseUrl + "/read/" + comicId + "/" + epId + ".html"
+          : this.baseUrl + "/";
+      const profiles = this.imageHeaderProfiles(referer);
+      const targetUrl = IMG_PROXY_TEMPLATE
+        ? IMG_PROXY_TEMPLATE.split("{url}").join(encodeURIComponent(url))
+        : url;
+
+      const validate = (buffer) => BiliManga.validateImageBytes(buffer);
+
+      const build = (i) => {
+        const headers = profiles[i < profiles.length ? i : profiles.length - 1];
+        return {
+          url: targetUrl,
+          method: "GET",
+          headers: headers,
+          onResponse: (buffer) => validate(buffer),
+          onLoadFailed: () => build(i + 1),
+        };
       };
+      return build(0);
     },
 
     onThumbnailLoad: (url) => {
-      let abs = this._abs(url);
+      const headers = this.imageHeaderProfiles("https://www.bilimanga.net/")[0];
       return {
-        url: abs,
-        headers: {
-          ...this.pageHeaders(),
-          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-          Referer: "https://www.bilimanga.net/",
-        },
+        url: IMG_PROXY_TEMPLATE
+          ? IMG_PROXY_TEMPLATE.split("{url}").join(encodeURIComponent(url))
+          : url,
+        headers: headers,
       };
     },
 

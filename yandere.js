@@ -3,7 +3,7 @@
 class YandeRe extends ComicSource {
     name = "yande.re"
     key = "yandere"
-    version = "4.9.3"
+    version = "4.9.4"
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/yandere.js"
 
@@ -72,13 +72,19 @@ class YandeRe extends ComicSource {
 
     _hideExplicit() { return this._toBool(this.loadSetting("hide_explicit")) }
     _hideQuestionable() { return this._toBool(this.loadSetting("hide_questionable")) }
+    _onlyExplicit() { return this._toBool(this.loadSetting("only_explicit")) }
     _useSearchWildcard() { return this._toBool(this.loadSetting("search_wildcard")) }
 
     _shouldHideRating(rating) {
-        if (!rating) return false
-        let r = String(rating).toLowerCase()
-        if (r === "e" || r === "explicit") return this._hideExplicit()
-        if (r === "q" || r === "questionable") return this._hideQuestionable()
+        let r = rating ? String(rating).toLowerCase() : ""
+        let isExplicit     = r === "e" || r === "explicit"
+        let isQuestionable = r === "q" || r === "questionable"
+
+        // 「只显示 Explicit」优先：非 explicit（含无评级）一律隐藏
+        if (this._onlyExplicit()) return !isExplicit
+
+        if (isExplicit)     return this._hideExplicit()
+        if (isQuestionable) return this._hideQuestionable()
         return false
     }
 
@@ -110,8 +116,13 @@ class YandeRe extends ComicSource {
     _buildTagString(baseTags) {
         let parts = []
         if (baseTags) parts.push(baseTags)
-        if (this._hideExplicit()) parts.push("-rating:explicit")
-        if (this._hideQuestionable()) parts.push("-rating:questionable")
+        if (this._onlyExplicit()) {
+            // 只显示 explicit：加 rating:explicit，同时忽略屏蔽开关，避免自相矛盾
+            parts.push("rating:explicit")
+        } else {
+            if (this._hideExplicit()) parts.push("-rating:explicit")
+            if (this._hideQuestionable()) parts.push("-rating:questionable")
+        }
         return parts.join(" ")
     }
 
@@ -362,7 +373,7 @@ class YandeRe extends ComicSource {
 
             let url
             if (rating === "all") {
-                // 未指定评级，走默认 URL 构造（会叠加屏蔽规则）
+                // 未指定评级，走默认 URL 构造（会叠加屏蔽规则 / 只显 Explicit）
                 url = this._buildPostUrl(tagsStr, p)
             } else {
                 // 指定了评级，绕过屏蔽规则
@@ -587,11 +598,8 @@ class YandeRe extends ComicSource {
             }
 
             let p = page || 1
-            let baseTags = "vote:3:" + username + " order:vote"
-            let parts = [baseTags]
-            if (this._hideExplicit()) parts.push("-rating:explicit")
-            if (this._hideQuestionable()) parts.push("-rating:questionable")
-            let tagsStr = parts.join(" ")
+            // 复用统一的 tag 构造逻辑（含 onlyExplicit 分支）
+            let tagsStr = this._buildTagString("vote:3:" + username + " order:vote")
             let url = this.base + "/post?tags=" + encodeURIComponent(tagsStr).replace(/%20/g, "+")
             if (p > 1) url += "&page=" + p
             url = this._withLocale(url)
@@ -1045,11 +1053,13 @@ class YandeRe extends ComicSource {
 • 取消收藏会投 0 分，图片会从收藏列表中消失。
 • 如果收藏夹列表为空，请到设置里填写「收藏夹用户名」（即你自己的 yande.re 用户名，例如 輕小說萬歲），注意不要带 vote:3: 或 order:vote 前缀。
 
-【屏蔽评级】
+【评级开关（三者互斥逻辑）】
 • 屏蔽 Explicit：屏蔽评级为 R-18 的帖子（默认开）。
 • 屏蔽 Questionable：屏蔽擦边、内衣、轻微裸露的帖子（默认开）。
-• 这两个开关会影响列表、搜索、详情页的展示。
-• 注意：搜索时如果你显式选了某个评级，则不再叠加屏蔽规则。
+• 只显示 Explicit：只保留 Explicit（明确 18+）的帖子，其他全隐藏。
+  - 开启后，「屏蔽 Explicit」与「屏蔽 Questionable」将被忽略（避免自相矛盾）。
+  - 影响范围：发现页、分类页、搜索（评级=全部时）、收藏夹、详情页。
+  - 如果你在搜索里显式选择了某个评级选项，则以搜索选项为准，本开关不叠加。
 
 【搜索筛选】
 • 搜索目标：标签 / 作者。
@@ -1096,13 +1106,19 @@ class YandeRe extends ComicSource {
             title: "屏蔽 Explicit (R-18)",
             type: "switch",
             default: true,
-            description: "屏蔽评级为 Explicit（明确 18+）的帖子。默认开启。"
+            description: "屏蔽评级为 Explicit（明确 18+）的帖子。默认开启。开启「只显示 Explicit」时本开关被忽略。"
         },
         hide_questionable: {
             title: "屏蔽 Questionable (擦边)",
             type: "switch",
             default: true,
-            description: "屏蔽评级为 Questionable（擦边、内衣、轻微裸露）的帖子。默认开启。"
+            description: "屏蔽评级为 Questionable（擦边、内衣、轻微裸露）的帖子。默认开启。开启「只显示 Explicit」时本开关被忽略。"
+        },
+        only_explicit: {
+            title: "只显示 Explicit (R-18)",
+            type: "switch",
+            default: false,
+            description: "开启后只保留 Explicit（明确 18+）的帖子，其他评级与无评级的帖子全部隐藏。与「屏蔽 Explicit」「屏蔽 Questionable」互斥，开启时后两者失效。搜索里若显式选了评级则以搜索选项为准。"
         },
         search_wildcard: {
             title: "搜索自动通配符",

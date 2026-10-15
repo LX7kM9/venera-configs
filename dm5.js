@@ -2,7 +2,7 @@
 class Dm5Source extends ComicSource {
     name = "动漫屋"
     key = "dm5"
-    version = "2.0.4"      // 发现页回退单页 + 放宽封面选择
+    version = "2.0.5"      // 整合 v7.0.3 的章节顺序归一化
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dm5.js"
 
@@ -116,7 +116,6 @@ class Dm5Source extends ComicSource {
     // ==================================================
     // 封面识别
     // ==================================================
-    // 严格的「真实竖版封面」判定：用于优先挑选
     isRealCover(url, className) {
         const s = String(url || "");
         if (!/^https?:\/\//i.test(s)) return false;
@@ -130,7 +129,6 @@ class Dm5Source extends ComicSource {
         return true;
     }
 
-    // 宽松的「可用图片」判定：仅排除站点 UI 图标、gif/svg。用于兜底，避免封面为空
     isUsableImage(url) {
         const s = String(url || "");
         if (!/^https?:\/\//i.test(s)) return false;
@@ -139,10 +137,8 @@ class Dm5Source extends ComicSource {
         return true;
     }
 
-    // 挑选封面：竖版封面优先，挑不到用任意可用图片兜底
     pickCover(anchor) {
         if (!anchor) return "";
-        // 1) 首选：真正的竖版封面
         const preferred = [
             "manga-list-2-cover-img",
             "book-list-cover-img",
@@ -155,12 +151,10 @@ class Dm5Source extends ComicSource {
             const url = this.getImageUrl(img);
             if (this.isRealCover(url, cls)) return url;
         }
-        // 2) 次选：任何真实竖版封面
         for (const img of anchor.querySelectorAll("img")) {
             const url = this.getImageUrl(img);
             if (this.isRealCover(url, img.attributes["class"])) return url;
         }
-        // 3) 兜底：任何可用图片（放宽，避免部分卡片封面为空）
         for (const img of anchor.querySelectorAll("img")) {
             const url = this.getImageUrl(img);
             if (this.isUsableImage(url)) return url;
@@ -195,6 +189,105 @@ class Dm5Source extends ComicSource {
         if (id.startsWith("manhua-")) return this.baseUrl + "/" + id + "/";
         if (/^m\d+$/i.test(id)) return this.baseUrl + "/" + id + "/";
         return this.baseUrl + "/" + id + "/";
+    }
+
+    // ==================================================
+    // 章节顺序归一化（移植自 dm5.js v7.0.3）
+    // ==================================================
+    // 站点详情页章节列表顺序因漫画而异：抽样 30 部里 25 部正序、5 部倒序。
+    // Venera 的「下一章」= 列表下标 +1，倒序列表会让下一章跳到上一话。
+    // 只在检测到主序列确实倒序时才重排；正序列表原样返回（零风险）。
+    // 重排规则：主序列（话/回/集/章）按卷号+话号升序，其余条目（番外/公告等）保持原相对顺序接最后。
+    parseChapterKey(title) {
+        const text = String(title == null ? "" : title);
+
+        const chapterMatch = text.match(
+            /第\s*(\d+(?:\.\d+)?)\s*(?:话|話|回|集|章|節|节)/
+        );
+
+        const volumeMatch =
+            text.match(/第\s*(\d+(?:\.\d+)?)\s*(?:卷|冊|册)/) ||
+            text.match(/^\s*(\d+(?:\.\d+)?)\s*(?:卷|冊|册)/);
+
+        if (chapterMatch) {
+            return {
+                series: "chapter",
+                volume: volumeMatch ? parseFloat(volumeMatch[1]) : 0,
+                number: parseFloat(chapterMatch[1])
+            };
+        }
+
+        if (volumeMatch) {
+            return {
+                series: "volume",
+                volume: 0,
+                number: parseFloat(volumeMatch[1])
+            };
+        }
+
+        return null;
+    }
+
+    normalizeChapterOrder(chapters) {
+        const items = [];
+        let position = 0;
+
+        for (const entry of chapters.entries()) {
+            items.push({
+                id: entry[0],
+                title: entry[1],
+                position: position++,
+                key: this.parseChapterKey(entry[1])
+            });
+        }
+
+        const groups = {};
+        for (const item of items) {
+            if (!item.key) continue;
+            if (!groups[item.key.series]) groups[item.key.series] = [];
+            groups[item.key.series].push(item);
+        }
+
+        let mainSeries = null;
+        for (const name of Object.keys(groups)) {
+            if (!mainSeries || groups[name].length > groups[mainSeries].length) {
+                mainSeries = name;
+            }
+        }
+
+        if (!mainSeries || groups[mainSeries].length < 3) {
+            return chapters;
+        }
+
+        const mainItems = groups[mainSeries];
+        const first = mainItems[0].key;
+        const last = mainItems[mainItems.length - 1].key;
+
+        const descending =
+            first.volume > last.volume ||
+            (first.volume === last.volume && first.number > last.number);
+
+        if (!descending) {
+            return chapters;
+        }
+
+        const sorted = mainItems.slice().sort((a, b) => {
+            if (a.key.volume !== b.key.volume) return a.key.volume - b.key.volume;
+            if (a.key.number !== b.key.number) return a.key.number - b.key.number;
+            return a.position - b.position;
+        });
+
+        const ordered = new Map();
+        for (const item of sorted) {
+            ordered.set(item.id, item.title);
+        }
+
+        for (const item of items) {
+            if (item.key && item.key.series === mainSeries) continue;
+            ordered.set(item.id, item.title);
+        }
+
+        return ordered;
     }
 
     // ==================================================
@@ -301,7 +394,7 @@ class Dm5Source extends ComicSource {
     }
 
     // ==================================================
-    // 探索页（回退到单页：banner + 分类列表）
+    // 探索页（单页多分区）
     // ==================================================
     explore = [
         {
@@ -702,7 +795,7 @@ class Dm5Source extends ComicSource {
             }
 
             // 章节列表
-            const chapters = new Map();
+            let chapters = new Map();
             const seen = new Set();
 
             for (const a of document.querySelectorAll(".detail-list-select a")) {
@@ -725,6 +818,10 @@ class Dm5Source extends ComicSource {
                 seen.add(chapterId);
                 chapters.set(String(chapterId), String(chapterTitle));
             }
+
+            // ★ 章节顺序归一化（移植自 dm5.js v7.0.3）
+            // 检测到主序列倒序时才重排，正序原样返回
+            chapters = this.normalizeChapterOrder(chapters);
 
             // 提取 mid（评论系统用）
             const html = res.body || "";
