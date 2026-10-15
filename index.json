@@ -45,7 +45,7 @@
         "name": "如漫画",
         "fileName": "rumanhua.js",
         "key": "rumanhua",
-        "version": "2.4.1",
+        "version": "2.4.2",
         "description": "非个人自制，增加访问地址和图片质量，修复阅读报错问题，修复搜索异常问题，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -108,7 +108,7 @@
         "name": "哔哩漫画",
         "fileName": "bilimanga.js",
         "key": "bilimanga",
-        "version": "1.6.2",
+        "version": "1.6.3",
         "description": "非个人自制，修复搜索功能，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -150,7 +150,7 @@
         "name": "NoyManga",
         "fileName": "noymanga.js",
         "key": "noymanga",
-        "version": "1.1.4",
+        "version": "1.1.6",
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -164,7 +164,7 @@
         "name": "动漫屋",
         "fileName": "dm5.js",
         "key": "dm5",
-        "version": "2.0.4",
+        "version": "2.0.5",
         "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -381,7 +381,7 @@
         "name": "yande.re",
         "fileName": "yandere.js",
         "key": "yandere",
-        "version": "4.9.3",
+        "version": "4.9.4",
         "description": "个人自制，支持账号密码、网页登录。支持评论，评论区可跳转被评论作品，支持网络收藏夹，支持收藏作品到网络收藏夹，支持分类搜索，支持非精确搜索，支持网页语言切换，可屏蔽s、q内容，支持分类页和发现页，支持链接解析跳转，支持漫画详情页链接复制"
     },
     {
