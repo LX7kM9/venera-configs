@@ -52,7 +52,7 @@
         "name": "飞翔漫画",
         "fileName": "ffppt.js",
         "key": "ffppt",
-        "version": "1.0.2",
+        "version": "1.0.6",
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -157,7 +157,7 @@
         "name": "优酷漫画",
         "fileName": "ykmh.js",
         "key": "ykmh",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "description": "非个人自制，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -178,7 +178,7 @@
         "name": "Mangabz",
         "fileName": "mangabz.js",
         "key": "mangabz",
-        "version": "0.9.3",
+        "version": "1.0.3",
         "description": "非个人自制，修复漫画详情页报错问题，修复漫画不显示图片的问题（漫画一直不显示），修复发现页缺少内容的问题，新增分类页，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -280,6 +280,13 @@
         "description": "非个人自制，重做发现页，新增分类页，优化漫画详情页，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "vomic",
+        "fileName": "vomic.js",
+        "key": "vomic",
+        "version": "1.2.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "MYCOMIC",
         "fileName": "mycomic.js",
         "key": "mycomic",
@@ -332,7 +339,7 @@
         "name": "漫画人",
         "fileName": "manhuaren.js",
         "key": "manhuaren",
-        "version": "1.0.2",
+        "version": "2.0.1",
         "description": "官方版本，删除发现页无效的查看更多按键，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {

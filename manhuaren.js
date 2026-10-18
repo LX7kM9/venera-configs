@@ -2,7 +2,7 @@
 class ManHuaRen extends ComicSource {
     name = "漫画人"
     key = "manhuaren"
-    version = "2.0.0"   // 移植 dm5 新功能
+    version = "2.0.1"   // 整合正序化修复与内存释放
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/manhuaren.js"
 
@@ -170,7 +170,7 @@ class ManHuaRen extends ComicSource {
     }
 
     // ==================================================
-    // 漫画 ID 工具（适配 manhuaren 的 manhua-xxx / m\d+ 两种格式）
+    // 漫画 ID 工具
     // ==================================================
     getComicId(href) {
         if (!href) return null;
@@ -196,6 +196,60 @@ class ManHuaRen extends ComicSource {
         if (id.startsWith("manhua-")) return this.baseUrl + "/" + id + "/";
         if (/^m\d+$/i.test(id)) return this.baseUrl + "/" + id + "/";
         return this.baseUrl + "/" + id + "/";
+    }
+
+    // ==================================================
+    // 章节排序修复（移植自 1.0.1）
+    // ==================================================
+    _chapterOrderKey(title) {
+        const text = String(title || "").replace(/[０-９]/g, value => String(value.charCodeAt(0) - 0xFF10));
+        const chapter = text.match(/第\s*(\d+(?:\.\d+)?)\s*(?:话|話|回|集|章|節|节)/);
+        const volume = text.match(/(?:第\s*)?(\d+(?:\.\d+)?)\s*(?:卷|冊|册)/);
+        if (!chapter && !volume) return null;
+        let part = 0;
+        if (/[（(]\s*上(?:篇|半|集|部)?\s*[）)]/.test(text)) part = 1;
+        else if (/[（(]\s*中(?:篇|集|部)?\s*[）)]/.test(text)) part = 2;
+        else if (/[（(]\s*下(?:篇|半|集|部)?\s*[）)]/.test(text)) part = 3;
+        const numberedPart = text.match(/[（(]\s*(\d+)\s*[）)]/);
+        if (numberedPart) part = Number(numberedPart[1]);
+        return chapter ? { series: "chapter", volume: volume ? Number(volume[1]) : 0, number: Number(chapter[1]), part: part }
+            : { series: "volume", volume: 0, number: Number(volume[1]), part: part };
+    }
+
+    _normalizeChapterOrder(chapters) {
+        const entries = Array.from(chapters, ([id, title], position) => ({ id, title, position, key: this._chapterOrderKey(title) }));
+        const series = {};
+        for (const entry of entries) {
+            if (!entry.key) continue;
+            if (!series[entry.key.series]) series[entry.key.series] = [];
+            series[entry.key.series].push(entry);
+        }
+        const compare = (a, b) => a.key.volume - b.key.volume || a.key.number - b.key.number || a.key.part - b.key.part;
+        const compareChapter = (a, b) => a.key.volume - b.key.volume || a.key.number - b.key.number;
+        let changed = false;
+        for (const name of Object.keys(series)) {
+            const items = series[name];
+            if (items.length < 2) continue;
+            let ascending = 0, descending = 0;
+            for (let i = 1; i < items.length; i++) {
+                const direction = compareChapter(items[i - 1], items[i]);
+                if (direction < 0) ascending++;
+                if (direction > 0) descending++;
+            }
+            if (!ascending && !descending) {
+                for (let i = 1; i < items.length; i++) {
+                    const direction = compare(items[i - 1], items[i]);
+                    if (direction < 0) ascending++;
+                    if (direction > 0) descending++;
+                }
+            }
+            if (!descending || ascending) continue;
+            const sorted = items.slice().sort((a, b) => compare(a, b) || a.position - b.position);
+            for (let i = 0; i < items.length; i++) entries[items[i].position] = sorted[i];
+            changed = true;
+        }
+        if (!changed) return chapters;
+        return new Map(entries.map(entry => [entry.id, entry.title]));
     }
 
     // ==================================================
@@ -316,7 +370,6 @@ class ManHuaRen extends ComicSource {
                 const result = {};
                 const seen = new Set();
 
-                // ========== 1) 首页 banner ==========
                 const banner = document.querySelector(".index-banner");
                 if (banner) {
                     const comics = [];
@@ -351,7 +404,6 @@ class ManHuaRen extends ComicSource {
                     if (comics.length > 0) result["热门推荐"] = comics;
                 }
 
-                // ========== 2) 分类列表 ==========
                 const lists = document.querySelectorAll(".manga-list");
                 for (let i = 0; i < lists.length; i++) {
                     const list = lists[i];
@@ -417,7 +469,7 @@ class ManHuaRen extends ComicSource {
     ];
 
     // ==================================================
-    // 分类（保留 manhuaren 原 POST 到 dm5.ashx 的方式）
+    // 分类
     // ==================================================
     category = {
         title: "漫画人",
@@ -609,170 +661,175 @@ class ManHuaRen extends ComicSource {
             this.comic.id = id;
 
             let doc = new HtmlDocument(html);
+            try {
+                let title = this.cleanText(doc.querySelector('p.detail-main-info-title')?.text)
+                    || this.cleanText(doc.querySelector('span.normal-top-title')?.text)
+                    || this.cleanText(doc.querySelector('title')?.text?.replace(/漫画.*$/i, ''))
+                    || '未知标题';
 
-            let title = this.cleanText(doc.querySelector('p.detail-main-info-title')?.text)
-                || this.cleanText(doc.querySelector('span.normal-top-title')?.text)
-                || this.cleanText(doc.querySelector('title')?.text?.replace(/漫画.*$/i, ''))
-                || '未知标题';
-
-            let cover = "";
-            const coverSelectors = [
-                ".detail-main-cover img",
-                "img.detail-main-bg",
-                ".book-cover img",
-                ".comic-cover img",
-                ".cover img"
-            ];
-            for (const sel of coverSelectors) {
-                const img = doc.querySelector(sel);
-                if (!img) continue;
-                cover = this.getImageUrl(img);
-                if (cover) break;
-            }
-            if (!cover) {
-                const allImgs = doc.querySelectorAll("img");
-                for (const img of allImgs) {
-                    const src = this.getImageUrl(img);
-                    if (this.isUsableImage(src)) { cover = src; break; }
+                let cover = "";
+                const coverSelectors = [
+                    ".detail-main-cover img",
+                    "img.detail-main-bg",
+                    ".book-cover img",
+                    ".comic-cover img",
+                    ".cover img"
+                ];
+                for (const sel of coverSelectors) {
+                    const img = doc.querySelector(sel);
+                    if (!img) continue;
+                    cover = this.getImageUrl(img);
+                    if (cover) break;
                 }
-            }
-
-            let author = '未知作者';
-            let authorContainer = doc.querySelector('.detail-main-info-author');
-            if (authorContainer) {
-                let authors = [];
-                let links = authorContainer.querySelectorAll('a') || [];
-                for (let i = 0; i < links.length; i++) {
-                    let text = this.cleanText(links[i].text);
-                    if (text) authors.push(text);
-                }
-                if (authors.length > 0) author = authors.join('，');
-                else {
-                    let raw = this.cleanText(authorContainer.text?.replace(/作者[:：]/, ''));
-                    if (raw) author = raw;
-                }
-            } else {
-                let metaAuthor = doc.querySelector('meta[name="Author"]')?.attributes?.content;
-                if (metaAuthor) author = metaAuthor.includes(':') ? metaAuthor.split(':').pop().trim() : metaAuthor.trim();
-            }
-
-            let status = this.cleanText(doc.querySelector('.detail-list-title-1')?.text) || '未知状态';
-            let description = this.cleanText(doc.querySelector('.detail-desc')?.text);
-            if (!description) description = doc.querySelector('meta[name="Description"]')?.attributes?.content || '';
-
-            let tags = [];
-            let tagElements = doc.querySelectorAll('.detail-main-info-class a') || [];
-            for (let i = 0; i < tagElements.length; i++) {
-                let tagText = this.cleanText(tagElements[i].text);
-                if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
-            }
-
-            let updateTime = this.cleanText(doc.querySelector('.detail-list-title-3')?.text) || '';
-
-            let starValue = null;
-            let starElement = doc.querySelector('.detail-main-info-star');
-            if (starElement && starElement.attributes && starElement.attributes['class']) {
-                let match = starElement.attributes['class'].match(/star-(\d+)/i);
-                if (match && match[1]) {
-                    let num = parseInt(match[1], 10);
-                    if (!isNaN(num)) starValue = num;
-                }
-            }
-
-            let chapters = new Map();
-            let seen = new Set();
-            let selectorItems = doc.querySelectorAll('.detail-selector .detail-selector-item');
-
-            if (selectorItems.length > 0) {
-                for (let item of selectorItems) {
-                    let groupName = this.cleanText(item.text);
-                    if (!groupName || groupName.includes('评论')) continue;
-
-                    let onclick = item.attributes['onclick'];
-                    let listId = null;
-                    if (onclick) {
-                        let match = onclick.match(/titleSelect\(.*?,.*?, *['"](.*?)['"]\)/);
-                        if (match) listId = match[1];
+                if (!cover) {
+                    const allImgs = doc.querySelectorAll("img");
+                    for (const img of allImgs) {
+                        const src = this.getImageUrl(img);
+                        if (this.isUsableImage(src)) { cover = src; break; }
                     }
+                }
 
-                    if (listId) {
-                        let listEl = doc.getElementById(listId);
-                        if (listEl) {
-                            let groupChapters = new Map();
-                            let links = listEl.querySelectorAll('a.chapteritem');
-                            for (let link of links) {
-                                let href = link.attributes['href'];
-                                let chapterTitle = this.cleanText(link.text || link.attributes['title']);
-                                if (href && chapterTitle) {
-                                    chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
-                                    if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
-                                    if (!seen.has(href)) {
-                                        seen.add(href);
-                                        groupChapters.set(href, chapterTitle);
+                let author = '未知作者';
+                let authorContainer = doc.querySelector('.detail-main-info-author');
+                if (authorContainer) {
+                    let authors = [];
+                    let links = authorContainer.querySelectorAll('a') || [];
+                    for (let i = 0; i < links.length; i++) {
+                        let text = this.cleanText(links[i].text);
+                        if (text) authors.push(text);
+                    }
+                    if (authors.length > 0) author = authors.join('，');
+                    else {
+                        let raw = this.cleanText(authorContainer.text?.replace(/作者[:：]/, ''));
+                        if (raw) author = raw;
+                    }
+                } else {
+                    let metaAuthor = doc.querySelector('meta[name="Author"]')?.attributes?.content;
+                    if (metaAuthor) author = metaAuthor.includes(':') ? metaAuthor.split(':').pop().trim() : metaAuthor.trim();
+                }
+
+                let status = this.cleanText(doc.querySelector('.detail-list-title-1')?.text) || '未知状态';
+                let description = this.cleanText(doc.querySelector('.detail-desc')?.text);
+                if (!description) description = doc.querySelector('meta[name="Description"]')?.attributes?.content || '';
+
+                let tags = [];
+                let tagElements = doc.querySelectorAll('.detail-main-info-class a') || [];
+                for (let i = 0; i < tagElements.length; i++) {
+                    let tagText = this.cleanText(tagElements[i].text);
+                    if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
+                }
+
+                let updateTime = this.cleanText(doc.querySelector('.detail-list-title-3')?.text) || '';
+
+                let starValue = null;
+                let starElement = doc.querySelector('.detail-main-info-star');
+                if (starElement && starElement.attributes && starElement.attributes['class']) {
+                    let match = starElement.attributes['class'].match(/star-(\d+)/i);
+                    if (match && match[1]) {
+                        let num = parseInt(match[1], 10);
+                        if (!isNaN(num)) starValue = num;
+                    }
+                }
+
+                let chapters = new Map();
+                let seen = new Set();
+                let selectorItems = doc.querySelectorAll('.detail-selector .detail-selector-item');
+
+                if (selectorItems.length > 0) {
+                    for (let item of selectorItems) {
+                        let groupName = this.cleanText(item.text);
+                        if (!groupName || groupName.includes('评论')) continue;
+
+                        let onclick = item.attributes['onclick'];
+                        let listId = null;
+                        if (onclick) {
+                            let match = onclick.match(/titleSelect\(.*?,.*?, *['"](.*?)['"]\)/);
+                            if (match) listId = match[1];
+                        }
+
+                        if (listId) {
+                            let listEl = doc.getElementById(listId);
+                            if (listEl) {
+                                let groupChapters = new Map();
+                                let links = listEl.querySelectorAll('a.chapteritem');
+                                for (let link of links) {
+                                    let href = link.attributes['href'];
+                                    let chapterTitle = this.cleanText(link.text || link.attributes['title']);
+                                    if (href && chapterTitle) {
+                                        chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
+                                        if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
+                                        if (!seen.has(href)) {
+                                            seen.add(href);
+                                            groupChapters.set(href, chapterTitle);
+                                        }
                                     }
                                 }
+                                // 应用章节倒序修正
+                                if (groupChapters.size > 0) chapters.set(groupName, this._normalizeChapterOrder(groupChapters));
                             }
-                            if (groupChapters.size > 0) chapters.set(groupName, groupChapters);
                         }
                     }
                 }
-            }
 
-            if (chapters.size === 0) {
-                let groupChapters = new Map();
-                let links = doc.querySelectorAll('a.chapteritem');
-                for (let link of links) {
-                    let href = link.attributes['href'];
-                    let chapterTitle = this.cleanText(link.text || link.attributes['title']);
-                    if (href && chapterTitle) {
-                        chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
-                        if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
-                        groupChapters.set(href, chapterTitle);
+                if (chapters.size === 0) {
+                    let groupChapters = new Map();
+                    let links = doc.querySelectorAll('a.chapteritem');
+                    for (let link of links) {
+                        let href = link.attributes['href'];
+                        let chapterTitle = this.cleanText(link.text || link.attributes['title']);
+                        if (href && chapterTitle) {
+                            chapterTitle = chapterTitle.replace(/\s*\d{4}-\d{2}-\d{2}\s*$/, "").trim();
+                            if (!href.startsWith('http')) href = this.toAbsoluteUrl(href);
+                            groupChapters.set(href, chapterTitle);
+                        }
                     }
+                    // 应用章节倒序修正
+                    if (groupChapters.size > 0) chapters.set('连载', this._normalizeChapterOrder(groupChapters));
                 }
-                if (groupChapters.size > 0) chapters.set('连载', groupChapters);
+
+                let parseRecommends = (htmlContent) => {
+                    let recs = [];
+                    let recPattern = /<li[^>]*class=["'][^"']*(?:list-comic|rec|recommend)[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[^<]*<\/a>[\s\S]*?<a[^>]*>\s*([^<]+)\s*<\/a>/gi;
+                    let m;
+                    let count = 0;
+                    while ((m = recPattern.exec(htmlContent)) !== null && count < 12) {
+                        let url = m[1];
+                        let cover = m[2];
+                        let titleText = (m[3] || '').trim();
+                        if (!url || !titleText) continue;
+                        if (!url.startsWith('http')) url = this.toAbsoluteUrl(url);
+                        if (cover && !cover.startsWith('http')) cover = this.toAbsoluteUrl(cover);
+                        recs.push(new Comic({ id: url, title: titleText, cover: cover }));
+                        count++;
+                    }
+                    return recs;
+                };
+                let recommends = parseRecommends(html);
+
+                let midMatch = html.match(/mid["\s:]*(\d+)/i) || html.match(/var mid = (\d+)/i) || html.match(/mid=(\d+)/i) || html.match(/var DM5_MID = (\d+)/i) || html.match(/var COMIC_MID=(\d+)/i);
+                if (midMatch) this.comic.mid = parseInt(midMatch[1]);
+
+                const detailUrl = targetUrl;
+
+                return new ComicDetails({
+                    title,
+                    cover,
+                    description: description || '暂无描述',
+                    tags: {
+                        '作者': [author || '未知作者'],
+                        '状态': [status || '未知状态'],
+                        '标签': tags
+                    },
+                    chapters: chapters,
+                    recommend: recommends,
+                    updateTime: updateTime,
+                    stars: starValue,
+                    subId: this.comic.mid ? this.comic.mid.toString() : '73225',
+                    url: detailUrl
+                });
+            } finally {
+                doc.dispose(); // 修复泄漏
             }
-
-            let parseRecommends = (htmlContent) => {
-                let recs = [];
-                let recPattern = /<li[^>]*class=["'][^"']*(?:list-comic|rec|recommend)[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[^<]*<\/a>[\s\S]*?<a[^>]*>\s*([^<]+)\s*<\/a>/gi;
-                let m;
-                let count = 0;
-                while ((m = recPattern.exec(htmlContent)) !== null && count < 12) {
-                    let url = m[1];
-                    let cover = m[2];
-                    let titleText = (m[3] || '').trim();
-                    if (!url || !titleText) continue;
-                    if (!url.startsWith('http')) url = this.toAbsoluteUrl(url);
-                    if (cover && !cover.startsWith('http')) cover = this.toAbsoluteUrl(cover);
-                    recs.push(new Comic({ id: url, title: titleText, cover: cover }));
-                    count++;
-                }
-                return recs;
-            };
-            let recommends = parseRecommends(html);
-
-            let midMatch = html.match(/mid["\s:]*(\d+)/i) || html.match(/var mid = (\d+)/i) || html.match(/mid=(\d+)/i) || html.match(/var DM5_MID = (\d+)/i) || html.match(/var COMIC_MID=(\d+)/i);
-            if (midMatch) this.comic.mid = parseInt(midMatch[1]);
-
-            const detailUrl = targetUrl;
-
-            return new ComicDetails({
-                title,
-                cover,
-                description: description || '暂无描述',
-                tags: {
-                    '作者': [author || '未知作者'],
-                    '状态': [status || '未知状态'],
-                    '标签': tags
-                },
-                chapters: chapters,
-                recommend: recommends,
-                updateTime: updateTime,
-                stars: starValue,
-                subId: this.comic.mid ? this.comic.mid.toString() : '73225',
-                url: detailUrl
-            });
         },
 
         loadEp: async (comicId, epId) => {
@@ -832,7 +889,7 @@ class ManHuaRen extends ComicSource {
         likeComic: async (id, isLike) => { /* 暂不实现 */ },
 
         // ==================================================
-        // 评论系统（保留）
+        // 评论系统
         // ==================================================
         loadComments: async (comicId, subId, page, replyTo) => {
             if (!subId) throw new Error('漫画ID未找到，无法加载评论');
