@@ -282,7 +282,7 @@ class Vomicmh extends ComicSource {
     // ------------------------------------------------------------------
 
     category = {
-        title: "分类",
+        title: "vomic",
         parts: [
             {
                 name: "题材",
