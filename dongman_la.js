@@ -1,7 +1,7 @@
 class DongManLa extends ComicSource {
     name = "动漫啦";
     key = "dongman_la";
-    version = "1.0.3";   // 章节列表反转为最老话在前
+    version = "1.0.6";
     minAppVersion = "1.0.0";
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/dongman_la.js";
 
@@ -41,51 +41,64 @@ class DongManLa extends ComicSource {
 
     parseMaxPage(doc, fallback = 1) {
         let maxPage = fallback;
-        const pageLinks = doc.querySelectorAll(".GPageLink, .pages a, .page a");
+        const pageLinks = doc.querySelectorAll("a[href], .GPageLink");
         for (const link of pageLinks) {
             const text = String(link.text || "").trim();
-            const number = parseInt(text, 10);
-            if (Number.isFinite(number) && number > maxPage) maxPage = number;
             const href = String(link.attributes.href || "");
             const hrefMatch = href.match(/(?:^|\/)(\d+)\.html(?:$|\?)/i);
             if (hrefMatch) {
                 const hrefNumber = parseInt(hrefMatch[1], 10);
                 if (hrefNumber > maxPage) maxPage = hrefNumber;
             }
+            if (!href && /^\d+$/.test(text) && /\bGPageLink\b/.test(link.attributes.class || "")) {
+                maxPage = Math.max(maxPage, parseInt(text, 10));
+            }
         }
         return maxPage;
     }
 
     parseListCard(item) {
-        const titleLink = item.querySelector(".title a") || item.querySelector("a[href*='/manhua/detail/']");
+        const itemAttrs = item.attributes;
+        const modern = /\bcomic-card\b/.test(itemAttrs.class || "");
+        const titleLink = item.querySelector(modern ? "h3" : ".title a, h2 a") || item.querySelector("a[href*='/manhua/detail/']");
         const image = item.querySelector("img");
         if (!titleLink || !image) return null;
 
-        const href = titleLink.attributes.href || "";
+        const href = modern ? itemAttrs.href : titleLink.attributes.href;
         const id = this.parseComicId(href);
         if (!id) return null;
 
-        const title = String(titleLink.text || image.attributes.alt || "").trim().replace(/漫画$/, "");
-        const status = String(item.querySelector(".zuozhe")?.text || "").trim();
-        const tags = String(item.querySelector(".biaoqian")?.text || "").trim();
-        const info = String(item.querySelector(".info")?.text || "").trim();
-        const subtitle = [status, tags].filter(value => value).join("；");
-        const cover = this.absoluteUrl(image.attributes["data-src"] || image.attributes["data-original"] || image.attributes.src || "", this.imageBaseUrl);
+        const imageAttrs = image.attributes;
+        const title = String(titleLink.text || imageAttrs.alt || "").trim().replace(/漫画$/, "");
+        let subtitle = String(item.querySelector(modern ? "p" : "a[href*='/manhua/chapter/']")?.text || "").trim();
+        if (!subtitle && !modern) {
+            subtitle = [item.querySelector(".zuozhe")?.text, item.querySelector(".biaoqian")?.text].filter(Boolean).join("；") || item.querySelector(".info")?.text || "";
+        }
+        const cover = this.imageKey(imageAttrs["data-src"] || imageAttrs["data-original"] || imageAttrs.src || "");
 
         return new Comic({
             id,
             title: title || "未知漫画",
             cover,
-            subTitle: subtitle || info
+            subTitle: subtitle
         });
     }
 
     parseList(doc) {
         const comics = [];
-        const cards = doc.querySelectorAll(".cy_list_mh > ul");
+        const cards = Array.from(doc.querySelectorAll(".cy_list_mh > ul, a.comic-card"));
+        for (const title of doc.querySelectorAll("h2 a[href*='/manhua/detail/']")) {
+            let row = title.parent;
+            while (row && row.localName !== "li") row = row.parent;
+            if (row) cards.push(row);
+        }
+        const seen = new Set();
         for (const card of cards) {
             const comic = this.parseListCard(card);
-            if (comic) comics.push(comic);
+            if (comic && !seen.has(comic.id)) {
+                seen.add(comic.id);
+                comics.push(comic);
+            }
         }
         return comics;
     }
@@ -98,12 +111,18 @@ class DongManLa extends ComicSource {
         if (!id) return null;
         const title = String(titleLink.text || image.attributes.alt || "").trim().replace(/漫画$/, "");
         const latest = String(item.querySelector("p a")?.text || "").trim();
-        const cover = this.absoluteUrl(image.attributes["data-src"] || image.attributes["data-original"] || image.attributes.src || "", this.imageBaseUrl);
+        const attrs = image.attributes;
+        const cover = this.imageKey(attrs["data-src"] || attrs["data-original"] || attrs.src || "");
         return new Comic({ id, title: title || "未知漫画", cover, subTitle: latest });
     }
 
     parseHomeSections(doc) {
         const result = {};
+        for (const section of doc.querySelectorAll(".library-section")) {
+            const title = String(section.querySelector(".section-heading h2")?.text || "推荐漫画").trim();
+            const comics = this.parseList(section);
+            if (comics.length) result[title] = comics;
+        }
         for (const section of doc.querySelectorAll(".cy_wide_list")) {
             const title = String(section.querySelector("span a")?.text || section.querySelector("span")?.text || "推荐漫画").trim();
             const comics = [];
@@ -129,10 +148,20 @@ class DongManLa extends ComicSource {
     }
 
     async fetchDocument(url) {
-        const response = await Network.get(url, this.defaultHeaders);
+        const response = await Network.get(url, {...this.defaultHeaders, "cache-time": "no"});
+        if (response.status !== 200) throw new Error("动漫啦请求失败: " + response.status);
         const body = String(response?.body || "");
         if (!body) throw new Error("empty response");
+        if (!/<\/html\s*>/i.test(body)) throw new Error("动漫啦网页传输不完整");
         return new HtmlDocument(body);
+    }
+
+    checkedList(doc) {
+        const comics = this.parseList(doc);
+        if (comics.length) return comics;
+        const text = String(doc.querySelector("main")?.text || "");
+        if (/没有找到与[\s\S]*相关的漫画/.test(text)) return [];
+        throw new Error("列表未返回有效漫画，可能是错误页或网页结构已变化");
     }
 
     explore = [{
@@ -140,12 +169,16 @@ class DongManLa extends ComicSource {
         type: "singlePageWithMultiPart",
         load: async () => {
             const doc = await this.fetchDocument(this.baseUrl + "/");
-            let result = this.parseHomeSections(doc);
-            if (Object.keys(result).length === 0) {
-                result = { "推荐漫画": this.parseList(doc) };
-            }
-            doc.dispose();
-            return result;
+            try {
+                let result = this.parseHomeSections(doc);
+                if (Object.keys(result).length === 0) {
+                    result = { "推荐漫画": this.parseList(doc) };
+                }
+                if (!Object.values(result).some(comics => comics.length > 0)) {
+                    throw new Error("首页未返回有效漫画，可能是错误页或网页结构已变化");
+                }
+                return result;
+            } finally { doc.dispose(); }
         }
     }];
 
@@ -155,7 +188,7 @@ class DongManLa extends ComicSource {
             {
                 name: "地区与进度",
                 type: "fixed",
-                categories: ["日本漫画", "港台漫画", "欧美漫画", "国产漫画", "韩漫", "完结", "连载中"],
+                categories: ["日本漫画", "港台漫画", "欧美漫画", "国产漫画", "韩漫", "完结", "最近更新"],
                 categoryParams: ["japan", "hongkongtaiwan", "oumei", "guochan", "hanguo", "finish", "serial"],
                 itemType: "category"
             },
@@ -172,40 +205,41 @@ class DongManLa extends ComicSource {
 
     categoryComics = {
         load: async (category, param, options, page) => {
+            let doc;
             try {
                 const url = this.buildListUrl("/manhua/" + String(param || "japan").replace(/^\/+|\/+$/g, "") + "/", page);
-                const doc = await this.fetchDocument(url);
-                const comics = this.parseList(doc);
+                doc = await this.fetchDocument(url);
+                const comics = this.checkedList(doc);
                 const maxPage = this.parseMaxPage(doc, this.parsePageNumber(page, 1));
-                doc.dispose();
                 return { comics, maxPage };
             } catch (e) {
-                return { comics: [], maxPage: this.parsePageNumber(page, 1) };
-            }
+                throw new Error("动漫啦分类加载失败: " + String(e));
+            } finally { doc?.dispose(); }
         }
     };
 
     search = {
         load: async (keyword, options, page) => {
+            let doc;
             try {
-                const doc = await this.fetchDocument(this.buildSearchUrl(keyword, page));
-                const comics = this.parseList(doc);
+                doc = await this.fetchDocument(this.buildSearchUrl(keyword, page));
+                const comics = this.checkedList(doc);
                 const maxPage = this.parseMaxPage(doc, 1);
-                doc.dispose();
                 return { comics, maxPage };
             } catch (e) {
-                return { comics: [], maxPage: 1 };
-            }
+                throw new Error("动漫啦搜索加载失败: " + String(e));
+            } finally { doc?.dispose(); }
         }
     };
 
     comic = {
         loadInfo: async (id) => {
+            let doc;
             try {
                 const url = this.baseUrl + "/manhua/detail/" + encodeURIComponent(String(id || "")) + "/";
-                const doc = await this.fetchDocument(url);
-                const title = String(doc.querySelector("h1[itemprop='name'], h1")?.text || "未知漫画").trim();
-                const cover = this.absoluteUrl(doc.querySelector("img[itemprop='image']")?.attributes.src || doc.querySelector("meta[property='og:image']")?.attributes.content || "", this.imageBaseUrl);
+                doc = await this.fetchDocument(url);
+                const title = String(doc.querySelector("h1[itemprop='name'], h1")?.text || "").trim();
+                const cover = this.imageKey(doc.querySelector("img[itemprop='image']")?.attributes.src || doc.querySelector("meta[property='og:image']")?.attributes.content || "");
                 const description = String(doc.querySelector("[itemprop='description'], .description, .intro")?.text || "").trim();
                 const tags = {};
                 const author = String(doc.querySelector("[itemprop='author'], a[href*='author']")?.text || "").trim();
@@ -217,68 +251,78 @@ class DongManLa extends ComicSource {
                 if (category) tags["地区"] = [category];
                 if (statusText) tags["状态"] = [statusText === "1" ? "连载中" : statusText];
 
-                // 章节列表：页面按「最新 → 最老」排列
-                // 先按页面顺序收集，再反转，让最老话排在最前
-                const rawChapters = [];   // [[chapterId, title], ...] 保持原始顺序
-                const seenIds = new Set();
-                const chapterLinks = doc.querySelectorAll("#chapterList a[href*='/manhua/chapter/'], a[href*='/manhua/chapter/']");
-                for (const link of chapterLinks) {
+                const chapters = new Map();
+                const list = doc.querySelector("#chapterList");
+                const chapterLinks = (list || doc).querySelectorAll("a[href*='/manhua/chapter/']");
+                // 网站目录为倒序；不能把顶部“开始阅读/最新话”快捷链接掺进目录顺序。
+                const orderedLinks = list ? Array.from(chapterLinks).reverse() : chapterLinks;
+                for (const link of orderedLinks) {
                     const href = link.attributes.href || "";
                     const chapterId = this.parseChapterId(href);
-                    if (!chapterId || seenIds.has(chapterId)) continue;
-                    seenIds.add(chapterId);
+                    if (!chapterId) continue;
                     const chapterTitle = String(link.text || "").trim() || ("章节 " + chapterId);
-                    rawChapters.push([chapterId, chapterTitle]);
-                }
-
-                // ★ 反转顺序：最老话在前
-                const chapters = new Map();
-                for (let i = rawChapters.length - 1; i >= 0; i--) {
-                    const [chapterId, chapterTitle] = rawChapters[i];
                     chapters.set(chapterId, chapterTitle);
                 }
+                if (!title || chapters.size === 0) throw new Error("未取得有效标题或章节目录，请重试或检查原站");
 
-                doc.dispose();
+                const comicUrl = this.baseUrl + "/manhua/detail/" + encodeURIComponent(String(id)) + "/";
 
-                return new ComicDetails({
-                    title,
-                    cover,
-                    description,
-                    tags,
+                return new ComicDetails({ 
+                    title, 
+                    cover, 
+                    description, 
+                    tags, 
                     chapters,
-                    url: this.baseUrl + "/manhua/detail/" + encodeURIComponent(String(id)) + "/"
+                    url: comicUrl // 支持复制链接
                 });
             } catch (e) {
-                return new ComicDetails({ title: "加载失败", chapters: new Map() });
-            }
+                throw new Error("动漫啦详情加载失败: " + String(e));
+            } finally { doc?.dispose(); }
         },
 
         loadEp: async (comicId, epId) => {
             try {
-                let chapterId = String(epId || "").trim();
-                let chapterUrl = chapterId;
-                if (!/^https?:\/\//i.test(chapterUrl)) {
-                    const match = chapterId.match(/\/manhua\/chapter\/\d+\/\d+\/?/i);
-                    if (!match) chapterUrl = "/manhua/chapter/" + String(comicId || "") + "/" + chapterId.replace(/^\/+|\/+$/g, "") + "/";
-                }
-                if (!/\/all\.html(?:\?|$)/i.test(chapterUrl)) {
-                    chapterUrl = chapterUrl.replace(/\/$/, "") + "/all.html";
-                }
-                const allResponse = await Network.get(this.absoluteUrl(chapterUrl), this.defaultHeaders);
-                const allBody = String(allResponse?.body || "");
-                let images = this.extractImages(allBody);
+                const chapterId = String(epId || "").trim();
+                let normalUrl = /\/manhua\/chapter\/\d+\/\d+\/?/i.test(chapterId)
+                    ? chapterId : "/manhua/chapter/" + encodeURIComponent(String(comicId)) + "/" + encodeURIComponent(chapterId) + "/";
+                normalUrl = this.absoluteUrl(normalUrl).replace(/\/(?:all|\d+)\.html(?:\?.*)?$/i, "/");
+                const allUrl = normalUrl.replace(/\/$/, "") + "/all.html";
+                let images = [];
+                let allError = "";
+                try {
+                    const response = await Network.get(allUrl, {...this.defaultHeaders, "cache-time": "no"});
+                    if (response.status !== 200) throw new Error("HTTP " + response.status);
+                    images = this.extractImages(String(response.body || ""));
+                } catch (e) { allError = String(e); }
                 if (images.length === 0) {
-                    const singleResponse = await Network.get(this.absoluteUrl(chapterId), this.defaultHeaders);
-                    images = this.extractImages(String(singleResponse?.body || ""));
+                    const singleResponse = await Network.get(normalUrl, {...this.defaultHeaders, "cache-time": "no"});
+                    if (singleResponse.status !== 200) throw new Error("阅读页 HTTP " + singleResponse.status + "; 整话页: " + allError);
+                    const doc = new HtmlDocument(String(singleResponse.body || ""));
+                    try {
+                        // 单页模式不能静默丢掉后面的图片页。
+                        const links = Array.from(doc.querySelectorAll("a[href]"));
+                        const pages = new Set();
+                        for (const link of links) {
+                            const href = String(link.attributes.href || "");
+                            if (/(?:^|\/)(\d+)\.html(?:\?|$)/.test(href)) {
+                                const url = /^https?:\/\//.test(href) || href.startsWith("/")
+                                    ? this.absoluteUrl(href) : normalUrl.replace(/\/?$/, "/") + href;
+                                if (url.startsWith(normalUrl.replace(/\/?$/, "/"))) pages.add(url);
+                            }
+                        }
+                        if (pages.size) throw new Error("整话页暂不可用，请重试，避免返回不完整章节");
+                    } finally { doc.dispose(); }
+                    images = this.extractImages(String(singleResponse.body || ""));
                 }
+                if (!images.length) throw new Error("未解析到正文图片，请检查网站或网络");
                 return { images: [...new Set(images)], headers: this.defaultHeaders };
             } catch (e) {
-                return { images: [] };
+                throw new Error("动漫啦章节加载失败: " + String(e));
             }
         },
 
-        onImageLoad: (url) => ({ headers: this.defaultHeaders }),
-        onThumbnailLoad: (url) => ({ headers: this.defaultHeaders }),
+        onImageLoad: (url) => this.imageConfig(url, true),
+        onThumbnailLoad: (url) => this.imageConfig(url, false),
 
         link: {
             domains: ['www.dongman.la', 'dongman.la'],
@@ -290,14 +334,48 @@ class DongManLa extends ComicSource {
         }
     };
 
+    imageKey(value) {
+        const url = this.absoluteUrl(value, this.imageBaseUrl);
+        return url ? url + (url.includes("?") ? "&" : "?") + "venera_dl=106" : "";
+    }
+
+    imageConfig(key, retry) {
+        // 缓存 key 换版本，但发给 CDN 的地址保持网站原样，避免额外缓存未命中。
+        const url = String(key || "").replace(/([?&])venera_dl=\d+(&|$)/, (m, prefix, suffix) => suffix ? prefix : "").replace(/[?&]$/, "");
+        const profiles = [
+            {...this.defaultHeaders, "Accept": "image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5", "Accept-Language": "zh-CN,zh;q=0.9"},
+            {"User-Agent": "Mozilla/5.0", "Accept": "image/*,*/*;q=0.8", "Referer": this.baseUrl + "/"},
+            {"User-Agent": this.defaultHeaders["User-Agent"], "Accept": "image/*,*/*;q=0.8"}
+        ];
+        const build = i => ({
+            url, headers: profiles[i],
+            onResponse: buffer => {
+                const bytes = new Uint8Array(buffer);
+                const jpeg = bytes[0] === 255 && bytes[1] === 216;
+                const png = bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+                const webp = bytes[0] === 82 && bytes[1] === 73 && bytes[8] === 87 && bytes[9] === 69;
+                const gif = bytes[0] === 71 && bytes[1] === 73 && bytes[2] === 70;
+                if (bytes.length < 12 || (!jpeg && !png && !webp && !gif)) throw new Error("动漫啦返回的不是图片");
+                if (jpeg && (bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217)) throw new Error("动漫啦图片传输不完整，请重试");
+                return buffer;
+            },
+            // 缩略图下载器不调用 onLoadFailed；只给正文配置有限重试。
+            ...(retry ? {onLoadFailed: () => i + 1 < profiles.length ? build(i + 1) : null} : {})
+        });
+        return build(0);
+    }
+
     extractImages(body) {
         if (!body) return [];
+        if (!/<\/html\s*>/i.test(body)) throw new Error("动漫啦阅读页传输不完整");
         const doc = new HtmlDocument(body);
         const images = [];
-        for (const img of doc.querySelectorAll("img")) {
-            const src = img.attributes.src || img.attributes["data-src"] || img.attributes["data-original"] || "";
+        const reader = doc.querySelector("[data-reading], #images, #manga, .comic-content") || doc;
+        for (const img of reader.querySelectorAll("img")) {
+            const attrs = img.attributes;
+            const src = attrs["data-src"] || attrs["data-original"] || attrs.src || "";
             const url = this.absoluteUrl(src, this.imageBaseUrl);
-            if (/^https?:\/\//i.test(url) && url.includes("img.dongman.la")) images.push(url);
+            if (/^https?:\/\/img\.dongman\.la\//i.test(url) && !/\/uploads\/manhua\//i.test(url)) images.push(this.imageKey(url));
         }
         doc.dispose();
         return images;

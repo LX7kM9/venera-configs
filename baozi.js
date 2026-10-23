@@ -1,3 +1,66 @@
+const baoziStandardReadPages = async function baoziStandardReadPages(startUrl, expected, loadPage, formatImage, initialBody) {
+  const seenPages = new Set(), seenImages = new Set(), images = [];
+  let current = startUrl, body = initialBody, page = 1, total = null, identity = null;
+  const resolve = (value, base) => {
+    const text = String(value || '').trim();
+    if (/^https:\/\//i.test(text)) return text;
+    if (text.startsWith('//')) return 'https:' + text;
+    const origin = String(base).match(/^https:\/\/[^/]+/i)?.[0];
+    if (!origin || !text || /^(?:[a-z]+:|#)/i.test(text)) throw new Error('包子：分页链接格式异常。');
+    return text.startsWith('/') ? origin + text : String(base).replace(/[^/]*$/, '') + text;
+  };
+  const ref = url => {
+    const m = String(url).match(/^https:\/\/([^/?#]+)\/(?:baozimhapp\/)?comic\/chapter\/([^/?#]+)\/(\d+)_(\d+)(?:_(\d+))?\.html(?:[?#].*)?$/i);
+    if (!m) return null;
+    const host = m[1].toLowerCase();
+    if (!/(?:^|\.)(?:baozimh\.com|baozimhcn\.com|bzmgcn\.com|webmota\.com|kukuc\.co|twmanga\.com|dinnerku\.com|dzmanga\.com|cnbzmg\.com|twbzmg\.com)$/.test(host)) throw new Error('包子：分页跳到了未知阅读域名。');
+    return { comic: m[2], section: Number(m[3]), chapter: Number(m[4]), page: Number(m[5] || 1) };
+  };
+  while (true) {
+    if (page > 200 || seenPages.has(current)) throw new Error('包子：章节分页异常或循环，未返回不完整章节。');
+    seenPages.add(current);
+    if (body === undefined) body = await loadPage(current);
+    if (typeof body !== 'string' || !/<\/html\s*>/i.test(body) || /<title[^>]*>\s*(?:Just a moment|Attention Required)/i.test(body)) throw new Error('包子：阅读页为空、验证页或传输不完整，请重试。');
+    const doc = new HtmlDocument(body);
+    let next = null, added = 0;
+    try {
+      const canonical = doc.querySelector('link[rel="canonical"]')?.attributes?.href;
+      const base = canonical ? resolve(canonical, current) : current;
+      const currentRef = ref(base) || ref(current);
+      if (currentRef) {
+        if (currentRef.section !== expected.section || currentRef.chapter !== expected.chapter || currentRef.page !== page) throw new Error('包子：阅读页不是所选章节或页码。');
+        if (!identity) identity = currentRef.comic;
+        if (identity !== currentRef.comic) throw new Error('包子：章节分页跨作品。');
+      }
+      const counter = String(doc.querySelector('title')?.text || '').match(/[（(](\d+)\s*\/\s*(\d+)[)）]/);
+      if (counter) {
+        const count = Number(counter[2]);
+        if (Number(counter[1]) !== page || count < page || count > 200 || (total !== null && total !== count)) throw new Error('包子：分页总数正在变化或格式异常，请重开章节。');
+        total = count;
+      }
+      for (const node of doc.querySelectorAll('.comic-contain .comic-contain__item')) {
+        let url = String(node.attributes['data-src'] || node.attributes.src || '').trim();
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (!/^https:\/\/[^\s]+$/i.test(url)) throw new Error('包子：正文图片地址缺失或无效。');
+        if (seenImages.has(url)) continue;
+        seenImages.add(url); images.push(formatImage(url)); added++;
+      }
+      if (!added) throw new Error('包子：正文分页为空或重复，未返回不完整章节。');
+      for (const a of doc.querySelectorAll('a[href]')) {
+        if (!/^(?:点击进入|點擊進入)?(?:下一页|下一頁|下页|下頁)$/.test(a.text.trim())) continue;
+        const candidate = resolve(a.attributes.href, base), r = ref(candidate);
+        if (!r || r.section !== expected.section || r.chapter !== expected.chapter || r.page !== page + 1 || (identity && r.comic !== identity)) throw new Error('包子：下一页链接跨章节、跨作品或页码不连续。');
+        if (next && candidate !== next) throw new Error('包子：出现冲突的下一页链接。');
+        if (!identity) identity = r.comic;
+        next = candidate;
+      }
+      if (total !== null && (page < total) !== !!next) throw new Error('包子：章节分页未完整返回，请刷新重试。');
+    } finally { doc.dispose(); }
+    if (!next) return { images };
+    current = next; page++; body = undefined;
+  }
+};
+
 class Baozi extends ComicSource {
   // 此漫画源的名称
   name = "包子漫画";
@@ -5,7 +68,7 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.2.1";
+  version = "1.2.2";
 
   minAppVersion = "1.0.0";
 
@@ -157,16 +220,10 @@ class Baozi extends ComicSource {
   }
 
   /// 探索页面
-  /// 一个漫画源可以有多个探索页面
   explore = [
     {
-      /// 标题
-      /// 标题同时用作标识符, 不能重复
       title: "包子漫画",
-
-      /// singlePageWithMultiPart 或者 multiPageComicList
       type: "singlePageWithMultiPart",
-
       load: async () => {
         var res = await Network.get(this.baseUrl);
         if (res.status !== 200) {
@@ -190,21 +247,12 @@ class Baozi extends ComicSource {
   ];
 
   /// 分类页面
-  /// 一个漫画源只能有一个分类页面, 也可以没有, 设置为null禁用分类页面
   category = {
-    /// 标题, 同时为标识符, 不能与其他漫画源的分类页面重复
     title: "包子漫画",
     parts: [
       {
         name: "类型",
-
-        // fixed 或者 random
-        // random用于分类数量相当多时, 随机显示其中一部分
         type: "fixed",
-
-        // 如果类型为random, 需要提供此字段, 表示同时显示的数量
-        // randomNumber: 5,
-
         categories: [
           "全部",
           "恋爱",
@@ -233,13 +281,7 @@ class Baozi extends ComicSource {
           "少年",
           "其它",
         ],
-
-        // category或者search
-        // 如果为category, 点击后将进入分类漫画页面, 使用下方的`categoryComics`加载漫画
-        // 如果为search, 将进入搜索页面
         itemType: "category",
-
-        // 若提供, 数量需要和`categories`一致, `categoryComics.load`方法将会收到此参数
         categoryParams: [
           "all",
           "lianai",
@@ -292,7 +334,6 @@ class Baozi extends ComicSource {
         maxPage: maxPage,
       };
     },
-    // 提供选项
     optionList: [
       {
         options: ["all-全部", "cn-国漫", "jp-日本", "kr-韩国", "en-欧美"],
@@ -319,16 +360,12 @@ class Baozi extends ComicSource {
         maxPage: 1,
       };
     },
-
-    // 提供选项
     optionList: [],
   };
 
   /// 收藏
   favorites = {
-    /// 是否为多收藏夹
     multiFolder: false,
-    /// 添加或者删除收藏
     addOrDelFavorite: async (comicId, folderId, isAdding) => {
       if (!isAdding) {
         let res = await Network.post(
@@ -348,10 +385,7 @@ class Baozi extends ComicSource {
         return "ok";
       }
     },
-    // 加载收藏夹, 仅当multiFolder为true时有效
-    // 当comicId不为null时, 需要同时返回包含该漫画的收藏夹
     loadFolders: null,
-    /// 加载漫画
     loadComics: async (page, folder) => {
       let res = await Network.get(`${this.baseUrl}/user/my_bookshelf`);
       if (res.status !== 200) {
@@ -415,7 +449,6 @@ class Baozi extends ComicSource {
         .replace(")", "");
       if (!updateTime) {
         const getLastChapterText = () => {
-          // 合并所有章节容器（处理可能存在多个列表的情况）
           const containers = [
             ...document.querySelectorAll(
               "#chapter-items, #chapters_other_list"
@@ -452,7 +485,6 @@ class Baozi extends ComicSource {
         i++;
       }
       if (i === 0) {
-        // 将倒序的最新章节反转
         const spans = Array.from(
           document.querySelectorAll("div.comics-chapters > a > div > span")
         ).reverse();
@@ -475,13 +507,11 @@ class Baozi extends ComicSource {
           });
         }
       }
-      // updateTime 将 Y年 M月 D日 转化为 Y-M-D
       let updateDate = updateTime
         .replace(/年/g, "-")
         .replace(/月/g, "-")
         .replace(/日/g, "");
 
-      // 生成详情页 URL（供复制链接使用）
       const comicUrl = `${this.baseUrl}/comic/${id}`;
 
       return new ComicDetails({
@@ -499,76 +529,46 @@ class Baozi extends ComicSource {
       });
     },
 
+    // ========== 合并了无(1)版的高级分页读取逻辑 ==========
     loadEp: async (comicId, epId) => {
-      const images = [];
-      const quality = this.loadSetting("image_quality");
-      const cdnSetting = this.loadSetting("cdn_domains");
-
-      const parseImagesFromDoc = (doc) => {
-        const result = [];
-
-        // 兼容 1.1.7 的选择器，同时兼容 1.2.0 的旧结构
-        let imageNodes = doc.querySelectorAll(
-          ".comic-contain amp-img.comic-contain__item"
-        );
-        if (!imageNodes.length) {
-          imageNodes = doc.querySelectorAll(".comic-contain > .chapter-img");
-        }
-
-        imageNodes.forEach((imgNode) => {
-          let imgUrl =
-            imgNode.attributes?.["data-src"] ||
-            imgNode.attributes?.src ||
-            imgNode.querySelector(".comic-contain__item")?.attributes?.["data-src"] ||
-            imgNode.querySelector("amp-img")?.attributes?.["data-src"] ||
-            imgNode.querySelector("amp-img")?.attributes?.src;
-
-          if (imgUrl) {
-            const match = imgUrl.match(
-              /^(https?:\/\/)?([^/\s:]+)(:\d+)?(\/[a-z]comic\/.*)/
-            );
-            if (match) {
-              const domain = cdnSetting === "" ? match[2] : cdnSetting;
-              imgUrl = `${match[1] || "https://"}${domain}${quality}${match[4]}`;
-            }
-            result.push(imgUrl);
-          }
-        });
-
-        return result;
+      const match = String(epId).match(/^(?:(\d+)[_:/-])?(\d+)$/);
+      if (!match || !/^[a-z0-9_-]+$/i.test(String(comicId))) throw new Error("包子：章节标识无效，请刷新目录。");
+      const section = Number(match[1] || 0), chapter = Number(match[2]);
+      const app = "https://appcn.baozimh.com/baozimhapp/comic/chapter/" + comicId + "/" + section + "_" + chapter + ".html";
+      const load = async url => {
+        const r = await Network.get(url, { "User-Agent": "Mozilla/5.0", Referer: this.baseUrl + "/", "cache-time": "no" });
+        if (r.status !== 200) throw new Error("包子：阅读页请求失败（HTTP " + r.status + "）。");
+        return String(r.body || "");
       };
-
-      // 优先使用 1.2.0 原有 App 版链接
-      try {
-        const appPageUrl = `https://appcn.baozimh.com/baozimhapp/comic/chapter/${comicId}/0_${epId}.html`;
-        const res = await Network.get(appPageUrl);
-        if (res.status !== 200) {
-          throw `Invalid status code: ${res.status}`;
+      let first, start = app;
+      try { first = await load(app); }
+      catch (_) {
+        let failure;
+        for (const host of [...new Set([this.baseUrl, "https://" + this.lang + ".webmota.com"])]) {
+          start = host + "/user/page_direct?comic_id=" + encodeURIComponent(comicId) + "&section_slot=" + section + "&chapter_slot=" + chapter;
+          try { first = await load(start); break; } catch (error) { failure = error; }
         }
-
-        const doc = new HtmlDocument(res.body);
-        images.push(...parseImagesFromDoc(doc));
-      } catch (e) {
-        // App 版失败则回退到主站，不直接中断
+        if (first === undefined) throw failure || new Error("包子：没有可用阅读入口。");
       }
-
-      // 从 1.1.7 移植：App 版无图或失败时，使用主站页面并带 Referer
-      if (images.length === 0) {
-        const currentPageUrl = `${this.baseUrl}/comic/chapter/${comicId}/0_${epId}.html`;
-        const res = await Network.get(currentPageUrl, {
-          Referer: `${this.baseUrl}/`,
-        });
-
-        if (res.status !== 200) {
-          throw `Invalid status code: ${res.status}`;
-        }
-
-        const doc = new HtmlDocument(res.body);
-        images.push(...parseImagesFromDoc(doc));
-      }
-
-      return { images: images };
+      return baoziStandardReadPages(start, { section, chapter }, load, url => {
+        const parts = url.match(/^(https:\/\/)([^/]+)(\/.*)$/i);
+        if (!parts) throw new Error("包子：图片地址异常。");
+        const domain = this.loadSetting("cdn_domains") || parts[2];
+        const setting = this.loadSetting("image_quality");
+        const quality = setting == null ? this.settings.image_quality.default : setting;
+        return parts[1] + domain + quality + parts[3].replace(/^\/w\d+(?=\/)/, "");
+      }, first);
     },
+
+    // ========== 合并了无(1)版的图片防盗链头 ==========
+    onImageLoad: url => ({ 
+      url, 
+      headers: { 
+        "User-Agent": "Mozilla/5.0", 
+        "Referer": this.baseUrl + "/", 
+        "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" 
+      } 
+    }),
 
     // ========== 链接解析功能（适配所有预设域名及常见路径） ==========
     link: {
