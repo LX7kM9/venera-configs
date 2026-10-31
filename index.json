@@ -378,6 +378,48 @@
         "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转，修复搜索400问题"
     },
     {
+        "name": "Cosplay联盟",
+        "fileName": "cosplaylm.js",
+        "key": "pandadiu",
+        "version": "1.2.3",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "漫画狗",
+        "fileName": "dogemanga.js",
+        "key": "dogemanga",
+        "version": "1.0.6",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "Project Gutenberg",
+        "fileName": "gutenberg.js",
+        "key": "project_gutenberg",
+        "version": "5.0.0",
+        "description": "个人移植，跟cxc一样可以在线阅读电子书，同时的话可以以epub或者txt的形式下载书籍。ai真好用（"
+    },
+    {
+        "name": "Mengteen",
+        "fileName": "mengteen.js",
+        "key": "mengteen",
+        "version": "1.0.0",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "美图公社",
+        "fileName": "tooopen.js",
+        "key": "tooopen",
+        "version": "1.0.5",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "无限动漫",
+        "fileName": "wuxian.js",
+        "key": "wuxian",
+        "version": "1.0.8",
+        "description": "个人移植，ai真好用（"
+    },
+    {
         "name": "zero搬运网",
         "fileName": "zero.js",
         "key": "zerobyw",
