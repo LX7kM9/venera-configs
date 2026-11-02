@@ -94,7 +94,7 @@
         "name": "W漫画",
         "fileName": "wmanhua.js",
         "key": "wmanhua",
-        "version": "1.0.2",
+        "version": "1.0.4",
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
@@ -308,6 +308,13 @@
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "栗子漫画",
+        "fileName": "lizimh.js",
+        "key": "lizimh",
+        "version": "1.2.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "MYCOMIC",
         "fileName": "mycomic.js",
         "key": "mycomic",
@@ -332,7 +339,7 @@
         "name": "包子漫画",
         "fileName": "baozi.js",
         "key": "baozi",
-        "version": "1.2.2",
+        "version": "1.2.3",
         "description": "官方版本，增加新的图片链接，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {

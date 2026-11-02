@@ -68,9 +68,12 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.2.2";
+  version = "1.2.3";
 
   minAppVersion = "1.0.0";
+
+  // 阅读入口与图片使用完整 UA；简写 Mozilla/5.0 会使 App 阅读入口返回验证页。
+  userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36";
 
   // 更新链接
   url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/baozi.js";
@@ -529,14 +532,13 @@ class Baozi extends ComicSource {
       });
     },
 
-    // ========== 合并了无(1)版的高级分页读取逻辑 ==========
     loadEp: async (comicId, epId) => {
       const match = String(epId).match(/^(?:(\d+)[_:/-])?(\d+)$/);
       if (!match || !/^[a-z0-9_-]+$/i.test(String(comicId))) throw new Error("包子：章节标识无效，请刷新目录。");
       const section = Number(match[1] || 0), chapter = Number(match[2]);
       const app = "https://appcn.baozimh.com/baozimhapp/comic/chapter/" + comicId + "/" + section + "_" + chapter + ".html";
       const load = async url => {
-        const r = await Network.get(url, { "User-Agent": "Mozilla/5.0", Referer: this.baseUrl + "/", "cache-time": "no" });
+        const r = await Network.get(url, { "User-Agent": this.userAgent, Referer: this.baseUrl + "/", "cache-time": "no" });
         if (r.status !== 200) throw new Error("包子：阅读页请求失败（HTTP " + r.status + "）。");
         return String(r.body || "");
       };
@@ -560,11 +562,10 @@ class Baozi extends ComicSource {
       }, first);
     },
 
-    // ========== 合并了无(1)版的图片防盗链头 ==========
     onImageLoad: url => ({ 
       url, 
       headers: { 
-        "User-Agent": "Mozilla/5.0", 
+        "User-Agent": this.userAgent, 
         "Referer": this.baseUrl + "/", 
         "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" 
       } 
@@ -572,16 +573,13 @@ class Baozi extends ComicSource {
 
     // ========== 链接解析功能（适配所有预设域名及常见路径） ==========
     link: {
-      // 包含所有可能的完整域名（基础域名 + 语言子域名）
       domains: [
-        // 基础域名
         'bzmgcn.com',
         'baozimhcn.com',
         'webmota.com',
         'kukuc.co',
         'twmanga.com',
         'dinnerku.com',
-        // 常见语言子域名（cn 和 tw）
         'cn.bzmgcn.com',
         'tw.bzmgcn.com',
         'cn.baozimhcn.com',
@@ -595,17 +593,7 @@ class Baozi extends ComicSource {
         'cn.dinnerku.com',
         'tw.dinnerku.com',
       ],
-      /**
-       * 从 URL 中提取漫画 ID
-       * 支持格式：
-       *   https://cn.bzmgcn.com/comic/123
-       *   https://tw.baozimhcn.com/comic/456/
-       *   https://webmota.com/comic/789?foo=bar
-       * @param {string} url - 完整的漫画详情页链接
-       * @returns {string|null} - 漫画 ID，若无法解析则返回 null
-       */
       linkToId: (url) => {
-        // 匹配 /comic/ 后面紧跟的非空字符（直到 / 或 ? 或 # 或字符串结束）
         let match = url.match(/\/comic\/([^\/?#]+)/);
         return match ? match[1] : null;
       }
