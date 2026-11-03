@@ -315,6 +315,27 @@
         "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
     },
     {
+        "name": "90漫画",
+        "fileName": "90mh.js",
+        "key": "mh90",
+        "version": "0.3.9",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
+        "name": "大魔兔",
+        "fileName": "damotu.js",
+        "key": "damotu",
+        "version": "0.7.1",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转，部分漫画图床失效"
+    },
+    {
+        "name": "爱飒漫画",
+        "fileName": "isamanhua.js",
+        "key": "isamanhua",
+        "version": "1.1.4",
+        "description": "非个人自制，增加漫画详情页链接复制，支持链接解析跳转"
+    },
+    {
         "name": "MYCOMIC",
         "fileName": "mycomic.js",
         "key": "mycomic",
@@ -383,6 +404,13 @@
         "key": "lanraragi",
         "version": "1.2.3",
         "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转，修复搜索400问题"
+    },
+    {
+        "name": "漫画柜",
+        "fileName": "manhuagui.js",
+        "key": "ManHuaGui",
+        "version": "1.2.3",
+        "description": "官方版本，增加漫画详情页链接复制，支持链接解析跳转，漫画柜已禁止香港、日本ip"
     },
     {
         "name": "Cosplay联盟",
