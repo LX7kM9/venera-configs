@@ -4,9 +4,11 @@ class Vomicmh extends ComicSource {
 
     key = "vomic"
 
-    version = "1.2.1"
+    version = "1.2.2"
 
     minAppVersion = "1.5.0"
+    
+    url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/vomic.js"
 
     static baseUrl = "https://vomicmh.com"
     static apiUrl = "https://api.vomicmh.com/pics"
@@ -261,18 +263,14 @@ class Vomicmh extends ComicSource {
     explore = [
         {
             title: "vomic",
-            type: "multiPartPage",
-            load: async (page) => {
-                if (page > 1) return []
+            type: "singlePageWithMultiPart",
+            load: async () => {
                 let html = await this.fetchPage("/")
                 let payload = this.getPayload(html)
                 let comics = this.extractComics(payload).map((o) => this.parseComicItem(o))
-                return [
-                    {
-                        title: "热门推荐",
-                        comics: comics,
-                    },
-                ]
+                return {
+                    "热门推荐": comics,
+                }
             },
         },
     ]

@@ -1,7 +1,7 @@
 class ComicWalker extends ComicSource {
   name = "カドコミ";
   key = "comic_walker";
-  version = "1.3.2";   // 增强 ID 提取，修复链接解析
+  version = "1.3.2";   // 修复 401 Token 过期时的自动重试逻辑
   minAppVersion = "1.6.0";
   url =
     "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/index.json";
@@ -35,7 +35,8 @@ class ComicWalker extends ComicSource {
       `${this.api_base}/v1/users`,
       this.headers,
       "POST",
-      {}
+      {},
+      true // 传入 true 防止刷新 Token 自身 401 导致递归死循环
     );
     if (res && res.resources && res.resources.access_token) {
       this.saveData("token", res.resources.access_token);
@@ -44,8 +45,8 @@ class ComicWalker extends ComicSource {
     throw new Error("Failed to get access token");
   }
 
-  // ========== 统一请求方法 ==========
-  async request(url, headers, method = "GET", data) {
+  // ========== 统一请求方法（已修复 401 重试） ==========
+  async request(url, headers, method = "GET", data, isRetry = false) {
     let response;
     try {
       if (method === "GET") {
@@ -59,43 +60,47 @@ class ComicWalker extends ComicSource {
       throw e;
     }
 
-    if (response.status !== 200 && response.status !== 204) {
-      throw new Error(`HTTP ${response.status}: ${response.body || "No body"}`);
-    }
     if (response.status === 204) {
       return response;
     }
 
-    let json;
+    let json = null;
     try {
-      json = JSON.parse(response.body);
+      if (response.body) json = JSON.parse(response.body);
     } catch (e) {
+      // 如果状态码不是 200/401，且解析 JSON 失败，直接抛出原始错误
+      if (response.status !== 200 && response.status !== 401) {
+        throw new Error(`HTTP ${response.status}: ${response.body || "No body"}`);
+      }
+    }
+
+    // 触发 Token 刷新与重试的条件：401 状态码，或 JSON 中返回了异常 code
+    if (
+      !isRetry &&
+      (response.status === 401 || (json && (
+        json.code === "invalid_request_parameter" ||
+        json.code === "free_daily_reward_quota_exceeded" ||
+        json.code === "unauthorized"
+      )))
+    ) {
+      try {
+        await this.refreshToken();
+      } catch (e) {
+        console.warn("[ComicWalker] 自动刷新 Token 失败:", e.message);
+      }
+      const newHeaders = { ...headers, ...this.headers };
+      // 递归重试一次
+      return await this.request(url, newHeaders, method, data, true);
+    }
+
+    if (response.status !== 200) {
+      throw new Error(`HTTP ${response.status}: ${response.body || "No body"}`);
+    }
+
+    if (json === null) {
       throw new Error(`Invalid JSON response: ${response.body.substring(0, 100)}`);
     }
 
-    if (
-      json.code === "invalid_request_parameter" ||
-      json.code === "free_daily_reward_quota_exceeded" ||
-      json.code === "unauthorized"
-    ) {
-      await this.refreshToken();
-      const newHeaders = { ...headers, ...this.headers };
-      let retryResponse;
-      if (method === "GET") {
-        retryResponse = await Network.get(url, newHeaders);
-      } else if (method === "POST") {
-        retryResponse = await Network.post(url, newHeaders, data);
-      }
-      if (retryResponse.status !== 200 && retryResponse.status !== 204) {
-        throw new Error(`Retry failed with status ${retryResponse.status}`);
-      }
-      if (retryResponse.status === 204) return retryResponse;
-      try {
-        json = JSON.parse(retryResponse.body);
-      } catch (e) {
-        throw new Error(`Retry invalid JSON: ${retryResponse.body.substring(0, 100)}`);
-      }
-    }
     return json;
   }
 
