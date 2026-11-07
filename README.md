@@ -1,7 +1,7 @@
 # venera-configs
-Allow secondary modifications and re-releases, but do not permit direct copying of the original source.!!!
+Allow secondary modifications and re-releases, but do not permit direct copying of the original source!!!All items not marked with "second revision" or similar are original or nearly completely redone sources!!!
 
-允许二次修改发布但不允许直接搬运原创源！！！
+允许二次修改发布但不允许直接搬运原创源！！！没标二改等字样的均为原创或几乎重做的源！！！
 
 Use AI to modify expired comic sources or add new features.
 
