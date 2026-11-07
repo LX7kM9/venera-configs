@@ -1,7 +1,7 @@
 class MeiTuGongShe extends ComicSource {
     name = "美图公社"
     key = "tooopen"
-    version = "1.0.5"
+    version = "1.0.6"
     minAppVersion = "1.0.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/tooopen.js"
 
@@ -22,19 +22,14 @@ class MeiTuGongShe extends ComicSource {
         };
     }
 
-    // 核心修复：短超时 + 内部自动重试，解决死节点卡死15秒导致第一次搜索报错的问题
     async _fetch(url) {
         let maxRetries = 3;
         for (let i = 0; i < maxRetries; i++) {
             try {
-                // 强制设置单次请求超时为 6 秒，超时立刻重试
                 let res = await Network.get(url, this.headers, { timeout: 6000 });
                 if (res.status === 200) return res;
-            } catch (e) {
-                // 捕获超时异常，准备进入下一次重试
-            }
+            } catch (e) {}
         }
-        // 3次全失败才抛出异常，让 Venera 显示重试按钮
         throw new Error("网络请求超时，请重试");
     }
 
@@ -80,9 +75,22 @@ class MeiTuGongShe extends ComicSource {
         return s.replace(/[\x00-\x1F\x7F-\x9F]/g, "").replace(/\s+/g, " ").trim();
     }
 
-    absUrl(url) {
+    // 清理被恶意注入的图片 URL
+    _cleanImageUrl(url) {
         if (!url) return "";
         let u = String(url).trim();
+        // 修复 https://imgfzone.tooopen.com/https://imgfzone.tooopen.com/...
+        u = u.replace(/^https?:\/\/imgfzone\.tooopen\.com\/https?:\/\//i, "https://");
+        u = u.replace(/^https?:\/\/imgfzone\.tooopen\.com\/http:\/\//i, "http://");
+        // 过滤明显的垃圾/死链
+        if (u.indexOf("nodesetcoverimg") !== -1) return "";
+        if (u.indexOf("http://161.248.86.5/") === 0) return "";
+        return u;
+    }
+
+    absUrl(url) {
+        if (!url) return "";
+        let u = this._cleanImageUrl(url);
         if (!u || u.indexOf("data:") === 0) return "";
         if (u.indexOf("//") === 0) return "https:" + u;
         if (/^https?:\/\//i.test(u)) return u;
@@ -115,13 +123,16 @@ class MeiTuGongShe extends ComicSource {
 
         for (let i = 0; i < attrs.length; i++) {
             let v = this._attr(el, attrs[i]);
-            if (v && !/^data:/i.test(v)) return v;
+            if (v && !/^data:/i.test(v)) {
+                let cleaned = this._cleanImageUrl(v);
+                if (cleaned) return cleaned;
+            }
         }
 
         let style = this._attr(el, "style");
         if (style) {
             let m = style.match(/url\(['"]?([^'")]+)['"]?\)/i);
-            if (m && m[1]) return m[1];
+            if (m && m[1]) return this._cleanImageUrl(m[1]);
         }
 
         return "";
@@ -148,6 +159,9 @@ class MeiTuGongShe extends ComicSource {
         let seen = {};
         let len = links.length || 0;
 
+        // 黑名单关键词：过滤异常注入/测试数据
+        const junkKeywords = ["xss", "probe", "test", "marker", "测试", "csrf", "poc", "exp", "script", "onload", "<", ">"];
+
         for (let i = 0; i < len; i++) {
             let link = links[i];
             let href = this._attr(link, "href");
@@ -169,11 +183,26 @@ class MeiTuGongShe extends ComicSource {
             title = this._htmlToText(title).replace(/\s+/g, " ").trim();
             if (!title || title.indexOf("http") === 0) title = "图集 " + id.replace(/[^\d]/g, "").substring(0, 6);
 
+            // ==== 过滤垃圾数据 ====
+            let lowerTitle = title.toLowerCase();
+            let isJunk = false;
+            for (let k of junkKeywords) {
+                if (lowerTitle.indexOf(k) !== -1) {
+                    isJunk = true;
+                    break;
+                }
+            }
+            if (isJunk) continue;
+
+            let cover = this._getCoverFromLink(link);
+            // 如果封面为空、或者仍然包含注入的特征，也跳过
+            if (!cover) continue;
+
             seen[id] = true;
             comics.push(new Comic({
                 id: String(id),
                 title: String(title),
-                cover: String(this._getCoverFromLink(link))
+                cover: String(cover)
             }));
         }
 
