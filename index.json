@@ -273,6 +273,13 @@
         "description": "非个人自制"
     },
     {
+        "name": "Xiutaku",
+        "fileName": "xiutaku.js",
+        "key": "xiutaku",
+        "version": "1.1.0",
+        "description": "非个人自制，秀人网专区，分类页里的“人气模特”分区下首个tag“随机抽取”可从原站1800多个tag内随机抽取"
+    },
+    {
         "name": "X漫画",
         "fileName": "xmanhua.js",
         "key": "xmanhua",
@@ -451,6 +458,27 @@
         "name": "无限动漫",
         "fileName": "wuxian.js",
         "key": "wuxian",
+        "version": "1.0.8",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "GravureGalaxy",
+        "fileName": "gravuregalaxy.js",
+        "key": "gravuregalaxy",
+        "version": "2.0.1",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "街拍团",
+        "fileName": "jiepaituan.js",
+        "key": "jiepaituan",
+        "version": "1.0.3",
+        "description": "个人移植，ai真好用（"
+    },
+    {
+        "name": "美图乐",
+        "fileName": "meitula.js",
+        "key": "meitula",
         "version": "1.0.8",
         "description": "个人移植，ai真好用（"
     },
