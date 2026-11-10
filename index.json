@@ -507,7 +507,7 @@
         "name": "Pixiv",
         "fileName": "pixiv.js",
         "key": "pixiv",
-        "version": "1.9.0",
+        "version": "1.9.6",
         "description":  "支持账号密码、网页、token登录，可屏蔽r18、r18g、ai内容，支持链接解析跳转，已支持多账号，增加系列连载，增加服务端 AI/R18 设置，增加推荐画师缓存，暂时无法攻破直连问题"
     },
     {

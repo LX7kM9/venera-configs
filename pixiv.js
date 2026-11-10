@@ -4,7 +4,7 @@ class Pixiv extends ComicSource {
 
     name = "Pixiv"
     key = "pixiv"
-    version = "1.9.0"
+    version = "1.9.6" // 更新版本号
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/LX7kM9/venera-configs@main/pixiv.js"
 
@@ -58,12 +58,9 @@ class Pixiv extends ComicSource {
     subAccounts() {
         try {
             let arr = JSON.parse(this.loadData('_sub_accounts_meta') || '[]')
-            if (Array.isArray(arr) && arr.length > 0) return arr
+            if (Array.isArray(arr)) return arr
         } catch (e) {}
-        try {
-            let arr = JSON.parse(this.loadSetting('sub_accounts') || '[]')
-            return Array.isArray(arr) ? arr : []
-        } catch (e) { return [] }
+        return []
     }
     _saveSubAccounts(arr) {
         this.saveData('_sub_accounts_meta', JSON.stringify(arr || []))
@@ -80,7 +77,14 @@ class Pixiv extends ComicSource {
     get activeAccount() {
         let value = this.loadData('active_account')
         let index = value === null || value === undefined || value === '' ? 0 : Number(value)
-        if (isNaN(index) || index < 0) return 0
+        if (isNaN(index) || index < 0) index = 0
+        
+        // 修复：如果当前账号索引没有 access_token，但主账号有，自动回退到主账号，防止收藏夹报 Not login
+        if (index > 0 && !this.loadData(this.accountTokenKey(index))) {
+            if (this.loadData(this.accountTokenKey(0))) {
+                return 0
+            }
+        }
         return index
     }
 
@@ -118,35 +122,24 @@ class Pixiv extends ComicSource {
     _moveAccountData(fromIdx, toIdx) {
         let v
         v = this.loadData(this.accountTokenKey(fromIdx))
-        if (v) {
-            this.saveData(this.accountTokenKey(toIdx), v)
-        } else {
-            this.deleteData(this.accountTokenKey(toIdx))
-        }
+        if (v) this.saveData(this.accountTokenKey(toIdx), v)
+        else this.deleteData(this.accountTokenKey(toIdx))
+
         v = this.loadData(this.accountRefreshKey(fromIdx))
-        if (v) {
-            this.saveData(this.accountRefreshKey(toIdx), v)
-        } else {
-            this.deleteData(this.accountRefreshKey(toIdx))
-        }
+        if (v) this.saveData(this.accountRefreshKey(toIdx), v)
+        else this.deleteData(this.accountRefreshKey(toIdx))
+
         v = this.loadData(this.accountUserIdKey(fromIdx))
-        if (v) {
-            this.saveData(this.accountUserIdKey(toIdx), v)
-        } else {
-            this.deleteData(this.accountUserIdKey(toIdx))
-        }
+        if (v) this.saveData(this.accountUserIdKey(toIdx), v)
+        else this.deleteData(this.accountUserIdKey(toIdx))
+
         v = this.loadData(this.accountUserNameKey(fromIdx))
-        if (v) {
-            this.saveData(this.accountUserNameKey(toIdx), v)
-        } else {
-            this.deleteData(this.accountUserNameKey(toIdx))
-        }
+        if (v) this.saveData(this.accountUserNameKey(toIdx), v)
+        else this.deleteData(this.accountUserNameKey(toIdx))
+
         v = this.loadData(this.accountUserAccountKey(fromIdx))
-        if (v) {
-            this.saveData(this.accountUserAccountKey(toIdx), v)
-        } else {
-            this.deleteData(this.accountUserAccountKey(toIdx))
-        }
+        if (v) this.saveData(this.accountUserAccountKey(toIdx), v)
+        else this.deleteData(this.accountUserAccountKey(toIdx))
     }
 
     _clearAccountData(idx) {
@@ -200,12 +193,30 @@ class Pixiv extends ComicSource {
             (res.status === 400 && res.body && res.body.indexOf('OAuth') >= 0)) {
             throw 'Login expired'
         }
+        if (res.status === 429) {
+            throw '请求频率过高 (429)，触发 Pixiv 限流，请稍后再试'
+        }
         if (res.status !== 200) {
             let detail = res.body ? String(res.body).substring(0, 300) : ''
             throw (message || 'Request failed') + ': ' + res.status +
                   (detail ? ' - ' + detail : '')
         }
         return 'ok'
+    }
+
+    parseAuthError(body) {
+        if (!body) return 'unknown error'
+        try {
+            let json = JSON.parse(body)
+            if (json.errors) {
+                for (let key in json.errors) {
+                    let err = json.errors[key]
+                    if (err && err.message) return err.message
+                }
+            }
+            if (json.error) return json.error
+        } catch (e) {}
+        return String(body).substring(0, 300)
     }
 
     _generatePkce() {
@@ -439,6 +450,9 @@ class Pixiv extends ComicSource {
             headers['Authorization'] = 'Bearer ' + token
             res = await Network.get(url, headers)
         }
+        if (res.status === 429) {
+            throw '请求频率过高 (429)，触发 Pixiv 限流，请稍后再试'
+        }
         if (res.status !== 200) throw 'HTTP ' + res.status + ': ' + url
         return JSON.parse(res.body)
     }
@@ -460,7 +474,13 @@ class Pixiv extends ComicSource {
             headers['Authorization'] = 'Bearer ' + token
             res = await Network.post(url, headers, body)
         }
-        if (res.status !== 200) throw 'HTTP ' + res.status + ': ' + url
+        if (res.status === 429) {
+            throw '请求频率过高 (429)，触发 Pixiv 限流，请稍后再试'
+        }
+        if (res.status !== 200) {
+            let detail = res.body ? String(res.body).substring(0, 100) : ''
+            throw 'HTTP ' + res.status + ': ' + url + ' ' + detail
+        }
         return JSON.parse(res.body)
     }
 
@@ -480,11 +500,13 @@ class Pixiv extends ComicSource {
             headers['Authorization'] = 'Bearer ' + token
             res = await Network.sendRequest('DELETE', url, headers, null)
         }
+        if (res.status === 429) {
+            throw '请求频率过高 (429)，触发 Pixiv 限流，请稍后再试'
+        }
         if (res.status !== 200) throw 'HTTP ' + res.status + ': ' + url
         return JSON.parse(res.body)
     }
 
-    // 设置类 POST: 不解析 JSON (可能返回空 body)
     async _settingsPost(path, body) {
         await this._ensureToken()
         let index = this.activeAccount
@@ -501,6 +523,9 @@ class Pixiv extends ComicSource {
             token = this.loadData(this.accountTokenKey(index))
             headers['Authorization'] = 'Bearer ' + token
             res = await Network.post(url, headers, body)
+        }
+        if (res.status === 429) {
+            throw '请求频率过高 (429)，触发 Pixiv 限流，请稍后再试'
         }
         if (res.status !== 200) throw 'HTTP ' + res.status + ': ' + url
         return res
@@ -554,7 +579,6 @@ class Pixiv extends ComicSource {
         try {
             let list = []
             let next = null
-            // 防御性上限: 最多翻 5 页, 避免超长系列拖慢详情页
             for (let i = 0; i < 5; i++) {
                 let url = next
                     ? next
@@ -565,7 +589,6 @@ class Pixiv extends ComicSource {
                 if (!next) break
             }
             if (list.length <= 1) return null
-            // 接口返回新 → 旧, 按投稿时间升序还原阅读顺序
             return list.sort((a, b) => {
                 let ta = a.create_date ? Date.parse(a.create_date) : 0
                 let tb = b.create_date ? Date.parse(b.create_date) : 0
@@ -577,6 +600,21 @@ class Pixiv extends ComicSource {
     // ==========================================================
     //  图片
     // ==========================================================
+    pickPageUrl(urls, quality) {
+        if (!urls) return null
+        if (quality === 'original') {
+            return urls.original || urls.large || urls.medium
+        }
+        return urls[quality] || urls.large || urls.medium
+    }
+
+    pickSingleUrl(illust, quality) {
+        if (quality === 'original') {
+            return (illust.meta_single_page && illust.meta_single_page.original_image_url) || (illust.image_urls && illust.image_urls.large)
+        }
+        return (illust.image_urls && (illust.image_urls[quality] || illust.image_urls.large)) || null
+    }
+
     pickImageUrls(urls) {
         if (!urls) return null
         let q = this.imageQuality
@@ -1039,16 +1077,18 @@ class Pixiv extends ComicSource {
         },
 
         loadFolders: async (comicId) => {
-            this.requireAccount()
             let folders = { 'public': '公开收藏', 'private': '私密收藏' }
             let favorited = []
             let detail = null
             if (comicId) detail = await this._getBookmarkDetail(comicId)
             let userId = this.getUserId()
+            // 修复：如果获取不到 userId，直接返回空，不要抛出异常让框架显示 Not login
+            if (!userId) return { folders: folders, favorited: favorited }
+            
             for (let restrict of ['public', 'private']) {
                 try {
                     let json = await this.apiGet(this.apiBase + '/v1/user/bookmark-tags/illust?user_id=' +
-                        (userId || '') + '&restrict=' + restrict)
+                        userId + '&restrict=' + restrict)
                     for (let tag of (json.bookmark_tags || [])) {
                         folders[this.tagFolderId(restrict, tag.name)] = `${tag.name} (${tag.count})`
                     }
@@ -1081,8 +1121,10 @@ class Pixiv extends ComicSource {
         },
 
         loadNext: async (next, folder) => {
-            this.requireAccount()
             let userId = this.getUserId()
+            // 修复：抛出明确的错误，而不是让底层拼接 user_id=null 报错
+            if (!userId) throw '无法获取当前用户ID，请重新登录'
+            
             let restrict = 'public'
             let tag = null
             let parts = this.parseTagFolder(folder)
@@ -1109,15 +1151,13 @@ class Pixiv extends ComicSource {
         loadInfo: async (id) => {
             if (id.startsWith('user_')) {
                 let userId = id.substring(5)
-                let userJson
-                try {
-                    userJson = await this.apiGet(this.apiBase + '/v1/user/detail?filter=for_android&user_id=' + userId)
-                } catch (e) {}
+                let userJson = await this.apiGet(this.apiBase + '/v1/user/detail?filter=for_android&user_id=' + userId)
                 let user = userJson?.user
                 if (!user) throw 'User not found'
 
                 let allIllusts = []
-                let offset = 0, limit = 30, maxPages = 100, hasMore = true, pageCount = 0
+                // 修复：上限改回100，取消之前的10页限制
+                let offset = 0, limit = 30, maxPages = 100, hasMore = true, pageCount = 0 
                 while (hasMore && pageCount < maxPages) {
                     let illustsJson = await this.apiGet(this.apiBase + '/v1/user/illusts?filter=for_android&user_id=' +
                         userId + '&offset=' + offset)
@@ -1161,7 +1201,6 @@ class Pixiv extends ComicSource {
             let illust = json.illust
             if (!illust) throw 'Illust not found'
 
-            // 系列连载: 每件作品一章; 普通多页作品: 单章标题
             let chapters = {}
             let series = await this.fetchSeriesIllusts(illust)
             if (series) {
@@ -1216,9 +1255,6 @@ class Pixiv extends ComicSource {
         },
 
         loadEp: async (comicId, epId) => {
-            // 用户页: epId 是插画 id
-            // 系列章节: epId 是系列内另一件作品的 illust id
-            // 普通单作品: epId === '0', 回退到 comicId
             let illustId
             if (comicId.startsWith('user_')) {
                 illustId = parseInt(epId)
@@ -1233,16 +1269,12 @@ class Pixiv extends ComicSource {
             if (!illust) throw 'Illust not found'
             let images = []
             if (illust.page_count <= 1 || !illust.meta_pages || illust.meta_pages.length === 0) {
-                let url = this.pickImageUrls(illust.image_urls)
-                if (this.imageQuality === 'original' && illust.meta_single_page?.original_image_url)
-                    url = illust.meta_single_page.original_image_url
+                let url = this.pickSingleUrl(illust, this.imageQuality)
                 images.push(this.rewriteHost(url))
             } else {
                 for (let i = 0; i < illust.meta_pages.length; i++) {
                     let page = illust.meta_pages[i]
-                    let url = this.pickImageUrls(page.image_urls)
-                    if (this.imageQuality === 'original' && page.image_urls.original)
-                        url = page.image_urls.original
+                    let url = this.pickPageUrl(page.image_urls, this.imageQuality)
                     images.push(this.rewriteHost(url))
                 }
             }
@@ -1282,18 +1314,16 @@ class Pixiv extends ComicSource {
             this.requireAccount()
             let artistId = this.loadData('_artist_of_' + id)
             if (!artistId && id.startsWith('user_')) artistId = id.substring(5)
-            if (!artistId) return
-            let isFollowed = false
-            try {
-                let followJson = await this.apiGet(this.apiBase + '/v1/user/follow/detail?user_id=' + artistId)
-                let fd = followJson.follow_detail
-                if (fd) isFollowed = !!fd.is_followed
-            } catch (e) {}
-            if (isFollowed) {
+            if (!artistId) throw '无法获取画师ID，请重新进入详情页'
+            
+            if (isLike) {
+                // 当前已关注 -> 取消关注
                 await this.apiPost(this.apiBase + '/v1/user/follow/delete', 'user_id=' + artistId)
             } else {
-                await this.apiPost(this.apiBase + '/v1/user/follow/add', 'user_id=' + artistId + '&restrict=private')
+                // 当前未关注 -> 添加关注
+                await this.apiPost(this.apiBase + '/v1/user/follow/add', 'user_id=' + artistId + '&restrict=public')
             }
+            return 'ok'
         },
 
         loadComments: async (comicId, subId, page, replyTo) => {
@@ -1349,6 +1379,13 @@ class Pixiv extends ComicSource {
             if (bracketIdx !== -1 && tag.endsWith(']')) searchTag = tag.substring(0, bracketIdx)
             this.saveData('_pending_tag_search', 'true')
             return { page: 'search', attributes: { keyword: searchTag } }
+        },
+
+        getShareLink: (id) => {
+            if (id.startsWith('user_')) {
+                return 'https://www.pixiv.net/users/' + id.substring(5)
+            }
+            return 'https://www.pixiv.net/artworks/' + id
         },
 
         link: {
@@ -1508,6 +1545,7 @@ class Pixiv extends ComicSource {
             callback: () => {
                 UI.showDialog("Pixiv 使用帮助",
 `• 主账号登录：WebView / Refresh Token / 用户名密码均可。
+  需要注意：初次使用登录主账号的时候，如果你需要查看网络收藏夹里的收藏，必须得使用网络登录（设置里最底下的登录），不能使用token登录。
 • 附属账号（推荐）：点「添加附属账号」→ 输入名称 → 输入 refresh_token → 校验通过即保存。
 • 附属账号（密码批量，便捷但不安全）：点「附属账号(密码登录)」填入 JSON，
   格式 [{"name":"小号1","username":"用户名","password":"密码"}]，
